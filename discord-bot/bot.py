@@ -3,7 +3,6 @@ from discord import app_commands
 from discord.ext import commands
 import json
 import os
-from mcrcon import MCRcon
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -15,6 +14,9 @@ RCON_PASSWORD = os.getenv("RCON_PASSWORD")
 WHITELIST_CHANNEL_ID = int(os.getenv("WHITELIST_CHANNEL_ID"))
 ADMIN_LOG_CHANNEL_ID = int(os.getenv("ADMIN_LOG_CHANNEL_ID"))
 WHITELIST_ROLE_ID = int(os.getenv("WHITELIST_ROLE_ID"))
+
+# TEST_MODE=true → RCON wird übersprungen, alles andere funktioniert normal
+TEST_MODE = os.getenv("TEST_MODE", "false").lower() == "true"
 
 WHITELIST_FILE = "whitelisted.json"
 
@@ -37,6 +39,10 @@ def save_whitelisted(data):
 
 
 def rcon_command(command):
+    if TEST_MODE:
+        print(f"[TEST MODE] RCON übersprungen: {command}")
+        return
+    from mcrcon import MCRcon
     with MCRcon(RCON_HOST, RCON_PASSWORD, port=RCON_PORT) as mcr:
         return mcr.command(command)
 
