@@ -41,30 +41,101 @@ def rcon_command(command):
         return mcr.command(command)
 
 
+class WhitelistModal(discord.ui.Modal, title="🔮 Whitelist"):
+    minecraft_name = discord.ui.TextInput(
+        label="Dein Minecraft Benutzername",
+        placeholder="z.B. Notch",
+        min_length=3,
+        max_length=16,
+        required=True,
+    )
+
+    async def on_submit(self, interaction: discord.Interaction):
+        name = self.minecraft_name.value.strip()
+        whitelisted = load_whitelisted()
+        user_id = str(interaction.user.id)
+
+        if user_id in whitelisted:
+            await interaction.response.send_message(
+                f"❌ Du bist bereits als **{whitelisted[user_id]}** gewhitelistet!",
+                ephemeral=True,
+            )
+            return
+
+        # Minecraft-Name validieren
+        clean = name.replace("_", "")
+        if not clean.isalnum():
+            await interaction.response.send_message(
+                "❌ Ungültiger Minecraft Name!\nNur Buchstaben, Zahlen und `_` erlaubt.",
+                ephemeral=True,
+            )
+            return
+
+        await interaction.response.defer(ephemeral=True)
+
+        try:
+            rcon_command(f"whitelist add {name}")
+
+            whitelisted[user_id] = name
+            save_whitelisted(whitelisted)
+
+            # Whitelisted-Rolle vergeben
+            role = interaction.guild.get_role(WHITELIST_ROLE_ID)
+            if role:
+                await interaction.user.add_roles(role)
+
+            await interaction.followup.send(
+                f"✅ **{name}** wurde erfolgreich zur Whitelist hinzugefügt!\n"
+                f"Du hast die Rolle {role.mention if role else '**Whitelisted**'} erhalten und kannst jetzt dem Server beitreten.",
+                ephemeral=True,
+            )
+
+            # Log im Admin-Kanal
+            admin_channel = bot.get_channel(ADMIN_LOG_CHANNEL_ID)
+            if admin_channel:
+                log = discord.Embed(
+                    description=f"✅ {interaction.user.mention} (`{interaction.user}`) wurde als **{name}** gewhitelistet",
+                    color=0x2ECC71,
+                )
+                log.set_footer(text=f"Discord ID: {interaction.user.id}")
+                await admin_channel.send(embed=log)
+
+        except Exception as e:
+            print(f"RCON Fehler: {e}")
+            await interaction.followup.send(
+                "❌ Fehler beim Verbinden mit dem Server. Bitte kontaktiere einen Admin.",
+                ephemeral=True,
+            )
+
+
+class WhitelistButton(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=None)
+
+    @discord.ui.button(
+        label="Whitelisten",
+        style=discord.ButtonStyle.primary,
+        emoji="🔮",
+        custom_id="whitelist_button",
+    )
+    async def whitelist_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_modal(WhitelistModal())
+
+
 def build_instructions_embed():
     embed = discord.Embed(
         title="🔮 Whitelist",
-        description="Um dem Minecraft Server beizutreten, whiteliste dich einmalig mit dem Command unten.",
+        description="Um dem Minecraft Server beizutreten, whiteliste dich einmalig über den Button unten.",
         color=0x9B59B6,
     )
     embed.add_field(
         name="Anleitung",
         value=(
-            "1. Schreibe den Command unten in diesen Kanal\n"
-            "2. Gib deinen **exakten** Minecraft-Benutzernamen an\n"
+            "1. Klicke auf den **Whitelisten** Button\n"
+            "2. Gib deinen **exakten** Minecraft-Benutzernamen ein\n"
             "3. Du wirst automatisch gewhitelistet und bekommst die Rolle\n"
             "4. Du kannst dich nur **einmal** whitelisten"
         ),
-        inline=False,
-    )
-    embed.add_field(
-        name="Command",
-        value="`/whitelist <dein_minecraft_name>`",
-        inline=False,
-    )
-    embed.add_field(
-        name="Beispiel",
-        value="`/whitelist Notch`",
         inline=False,
     )
     embed.set_footer(text="🔮 | Bei Problemen wende dich an einen Admin")
@@ -72,20 +143,19 @@ def build_instructions_embed():
 
 
 async def ensure_instructions(channel):
-    """Löscht alle Nachrichten im Kanal und postet die Anleitung neu."""
     await channel.purge(limit=100)
-    msg = await channel.send(embed=build_instructions_embed())
+    msg = await channel.send(embed=build_instructions_embed(), view=WhitelistButton())
     await msg.pin()
 
 
 @bot.event
 async def on_ready():
+    bot.add_view(WhitelistButton())
     await bot.tree.sync()
     print(f"🔮 Bot ist online als {bot.user}")
 
     channel = bot.get_channel(WHITELIST_CHANNEL_ID)
     if channel:
-        # Prüfen ob bereits eine angepinnte Bot-Anleitung existiert
         pins = await channel.pins()
         bot_pin = any(p.author == bot.user for p in pins)
         if not bot_pin:
@@ -94,75 +164,14 @@ async def on_ready():
 
 @bot.event
 async def on_message(message):
-    # Nachrichten von Bots ignorieren
     if message.author.bot:
         return
 
-    # Im Whitelist-Kanal alle User-Nachrichten sofort löschen
     if message.channel.id == WHITELIST_CHANNEL_ID:
         await message.delete()
         return
 
     await bot.process_commands(message)
-
-
-@bot.tree.command(name="whitelist", description="Whitelistet dich auf dem Minecraft Server")
-@app_commands.describe(minecraft_name="Dein Minecraft Benutzername")
-async def whitelist(interaction: discord.Interaction, minecraft_name: str):
-    whitelisted = load_whitelisted()
-    user_id = str(interaction.user.id)
-
-    if user_id in whitelisted:
-        await interaction.response.send_message(
-            f"❌ Du bist bereits als **{whitelisted[user_id]}** gewhitelistet!",
-            ephemeral=True,
-        )
-        return
-
-    # Minecraft-Name validieren (3-16 Zeichen, nur Buchstaben/Zahlen/Unterstrich)
-    clean = minecraft_name.replace("_", "")
-    if not clean.isalnum() or not (3 <= len(minecraft_name) <= 16):
-        await interaction.response.send_message(
-            "❌ Ungültiger Minecraft Name!\nNur Buchstaben, Zahlen und `_` erlaubt (3–16 Zeichen).",
-            ephemeral=True,
-        )
-        return
-
-    await interaction.response.defer(ephemeral=True)
-
-    try:
-        rcon_command(f"whitelist add {minecraft_name}")
-
-        # Speichern
-        whitelisted[user_id] = minecraft_name
-        save_whitelisted(whitelisted)
-
-        # Whitelisted-Rolle vergeben
-        role = interaction.guild.get_role(WHITELIST_ROLE_ID)
-        if role:
-            await interaction.user.add_roles(role)
-
-        await interaction.followup.send(
-            f"✅ **{minecraft_name}** wurde erfolgreich zur Whitelist hinzugefügt!\nDu hast die Rolle {role.mention if role else '**Whitelisted**'} erhalten und kannst jetzt dem Server beitreten.",
-            ephemeral=True,
-        )
-
-        # Log im Admin-Kanal
-        admin_channel = bot.get_channel(ADMIN_LOG_CHANNEL_ID)
-        if admin_channel:
-            log = discord.Embed(
-                description=f"✅ {interaction.user.mention} (`{interaction.user}`) wurde als **{minecraft_name}** gewhitelistet",
-                color=0x2ECC71,
-            )
-            log.set_footer(text=f"Discord ID: {interaction.user.id}")
-            await admin_channel.send(embed=log)
-
-    except Exception as e:
-        print(f"RCON Fehler: {e}")
-        await interaction.followup.send(
-            "❌ Fehler beim Verbinden mit dem Server. Bitte kontaktiere einen Admin.",
-            ephemeral=True,
-        )
 
 
 @bot.tree.command(name="whitelist-entfernen", description="Entfernt einen Spieler von der Whitelist (nur Admin)")
@@ -174,7 +183,6 @@ async def whitelist_remove(interaction: discord.Interaction, minecraft_name: str
     try:
         rcon_command(f"whitelist remove {minecraft_name}")
 
-        # Aus lokaler Datei entfernen und Rolle wegnehmen
         whitelisted = load_whitelisted()
         role = interaction.guild.get_role(WHITELIST_ROLE_ID)
 
@@ -183,7 +191,6 @@ async def whitelist_remove(interaction: discord.Interaction, minecraft_name: str
                 del whitelisted[uid]
                 save_whitelisted(whitelisted)
 
-                # Rolle wegnehmen
                 if role:
                     member = interaction.guild.get_member(int(uid))
                     if member:
@@ -195,7 +202,6 @@ async def whitelist_remove(interaction: discord.Interaction, minecraft_name: str
             ephemeral=True,
         )
 
-        # Log im Admin-Kanal
         admin_channel = bot.get_channel(ADMIN_LOG_CHANNEL_ID)
         if admin_channel:
             log = discord.Embed(
