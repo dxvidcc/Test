@@ -1,23 +1,32 @@
-import time
 import requests
 from colorama import Fore, Style
 
 APPID_CSGO = 730
 MARKET_BASE = "https://steamcommunity.com/market"
 
-CURRENCY_NAMES = {
-    1: "USD",
-    3: "EUR",
-    5: "GBP",
-}
-
 
 class SteamMarket:
-    def __init__(self, session: requests.Session, currency: int = 3):
-        self.session = session
+    def __init__(self, cookies: dict, currency: int = 3):
+        self.session = requests.Session()
+        self.session.cookies.update(cookies)
+        self.session.headers.update({
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+            "Accept-Language": "de-DE,de;q=0.9",
+        })
         self.currency = currency
+        self.sessionid = cookies.get("sessionid", "")
 
-    def get_listings(self, market_hash_name: str, count: int = 10) -> list[dict]:
+    def test_login(self) -> bool:
+        try:
+            resp = self.session.get(
+                f"{MARKET_BASE}/getwalletbalance/",
+                timeout=10,
+            )
+            return resp.json().get("success") == 1
+        except Exception:
+            return False
+
+    def get_listings(self, market_hash_name: str, count: int = 5) -> list[dict]:
         url = f"{MARKET_BASE}/listings/{APPID_CSGO}/{requests.utils.quote(market_hash_name)}/render/"
         params = {
             "start": 0,
@@ -31,7 +40,7 @@ class SteamMarket:
             resp.raise_for_status()
             data = resp.json()
         except Exception as e:
-            print(f"{Fore.RED}[ERROR] Listings fetch failed for '{market_hash_name}': {e}{Style.RESET_ALL}")
+            print(f"{Fore.RED}[FEHLER] Listings für '{market_hash_name}': {e}{Style.RESET_ALL}")
             return []
 
         listings = []
@@ -39,48 +48,41 @@ class SteamMarket:
         assets = data.get("assets", {}).get(str(APPID_CSGO), {}).get("2", {})
 
         for listing_id, info in raw_listings.items():
-            converted = info.get("converted_price", 0)
-            converted_fee = info.get("converted_fee", 0)
-            total_cents = converted + converted_fee
-
+            subtotal = info.get("converted_price", 0)
+            fee = info.get("converted_fee", 0)
             asset_id = info.get("asset", {}).get("id", "")
             asset = assets.get(asset_id, {})
 
             listings.append({
                 "listing_id": listing_id,
-                "price_cents": total_cents,
-                "asset_id": asset_id,
+                "subtotal": subtotal,
+                "fee": fee,
+                "price_cents": subtotal + fee,
                 "name": asset.get("market_hash_name", market_hash_name),
             })
 
         listings.sort(key=lambda x: x["price_cents"])
         return listings
 
-    def get_lowest_price(self, market_hash_name: str) -> int | None:
-        url = f"{MARKET_BASE}/priceoverview/"
-        params = {
-            "appid": APPID_CSGO,
+    def buy_listing(self, listing: dict, market_hash_name: str) -> bool:
+        url = f"{MARKET_BASE}/buylisting/{listing['listing_id']}"
+        data = {
+            "sessionid": self.sessionid,
             "currency": self.currency,
-            "market_hash_name": market_hash_name,
+            "subtotal": listing["subtotal"],
+            "fee": listing["fee"],
+            "total": listing["price_cents"],
+            "quantity": 1,
+        }
+        headers = {
+            "Referer": f"{MARKET_BASE}/listings/{APPID_CSGO}/{requests.utils.quote(market_hash_name)}",
+            "Origin": "https://steamcommunity.com",
+            "Content-Type": "application/x-www-form-urlencoded",
         }
         try:
-            resp = self.session.get(url, params=params, timeout=10)
-            resp.raise_for_status()
-            data = resp.json()
-            if not data.get("success"):
-                return None
-            # Steam liefert den Preis als String z.B. "0,05€"
-            lowest_str = data.get("lowest_price", "")
-            return _parse_price_string(lowest_str)
+            resp = self.session.post(url, data=data, headers=headers, timeout=15)
+            result = resp.json()
+            return result.get("wallet_info") is not None or result.get("purchaseid") is not None
         except Exception as e:
-            print(f"{Fore.RED}[ERROR] Price overview failed for '{market_hash_name}': {e}{Style.RESET_ALL}")
-            return None
-
-
-def _parse_price_string(price_str: str) -> int | None:
-    """Wandelt Steam-Preisstrings wie '0,21€' oder '$0.21' in Cent um."""
-    import re
-    digits = re.sub(r"[^\d]", "", price_str)
-    if digits:
-        return int(digits)
-    return None
+            print(f"{Fore.RED}[FEHLER] Kauf: {e}{Style.RESET_ALL}")
+            return False

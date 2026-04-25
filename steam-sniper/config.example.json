@@ -1,16 +1,15 @@
 {
-  "username": "dein_steam_username",
-  "password": "dein_steam_passwort",
-  "shared_secret": "dein_2fa_shared_secret",
-  "identity_secret": "dein_identity_secret",
-  "api_key": "dein_steam_web_api_key",
+  "cookies": {
+    "sessionid": "dein_sessionid_cookie",
+    "steamLoginSecure": "dein_steamLoginSecure_cookie"
+  },
   "currency": 3,
   "price_range": {
     "min_cents": 1,
     "max_cents": 21
   },
   "check_interval_seconds": 30,
-  "auto_buy": true,
+  "auto_buy": false,
   "max_buy_per_skin": 2,
   "skins": [
     "AK-47 | Redline (Field-Tested)",
