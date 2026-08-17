@@ -248,7 +248,11 @@ class EphemeralPanel(discord.ui.View):
 
 async def close_panel(interaction, text, delay=20):
     """Ersetzt das Panel durch das Ergebnis und räumt es danach weg."""
-    await interaction.edit_original_response(content=text, embed=None, view=None)
+    try:
+        await interaction.edit_original_response(content=text, embed=None, view=None)
+    except discord.HTTPException:
+        traceback.print_exc()  # Panel schon weg — die Aktion selbst ist trotzdem gelaufen
+        return
     schedule_delete(interaction, delay)
 
 
@@ -397,17 +401,20 @@ class WhitelistModal(discord.ui.Modal, title="🔮 Whitelist"):
             schedule_delete(interaction)
             return
 
-        await interaction.response.defer(ephemeral=True)
+        # thinking=True ist Pflicht: ohne das quittiert discord.py einen Modal-Submit
+        # als Update der Nachricht, an der der Button hängt — die Antwort würde dann
+        # die öffentliche Anleitung überschreiben statt ein eigenes Fenster zu öffnen.
+        await interaction.response.defer(ephemeral=True, thinking=True)
 
         # Minecraft-Whitelist per RCON — schlägt das fehl, brechen wir ab
         try:
             rcon_command(f"whitelist add {name}")
         except Exception:
             traceback.print_exc()
-            await interaction.edit_original_response(
-                content="❌ Fehler beim Verbinden mit dem Server. Bitte kontaktiere einen Admin."
+            await close_panel(
+                interaction,
+                "❌ Fehler beim Verbinden mit dem Server. Bitte kontaktiere einen Admin.",
             )
-            schedule_delete(interaction)
             return
 
         whitelisted[user_id] = name
@@ -429,11 +436,12 @@ class WhitelistModal(discord.ui.Modal, title="🔮 Whitelist"):
                     "die Bot-Rolle muss in den Servereinstellungen darüber stehen."
                 )
 
-        await interaction.edit_original_response(
-            content=f"✅ **{name}** wurde erfolgreich zur Whitelist hinzugefügt!\n"
-            "Du kannst jetzt dem Server beitreten." + role_hint
+        await close_panel(
+            interaction,
+            f"✅ **{name}** wurde erfolgreich zur Whitelist hinzugefügt!\n"
+            "Du kannst jetzt dem Server beitreten." + role_hint,
+            delay=30,
         )
-        schedule_delete(interaction, 30)
 
         log = discord.Embed(
             description=f"✅ {interaction.user.mention} (`{interaction.user}`) wurde als **{name}** gewhitelistet",
@@ -537,27 +545,20 @@ async def whitelist_remove(interaction: discord.Interaction, minecraft_name: str
         None,
     )
     if user_id is None:
-        await interaction.edit_original_response(
-            content=f"❌ **{minecraft_name}** steht nicht auf der Whitelist."
+        await close_panel(
+            interaction, f"❌ **{minecraft_name}** steht nicht auf der Whitelist."
         )
-        schedule_delete(interaction)
         return
 
     try:
         name = await remove_entry(interaction.guild, user_id, interaction.user)
     except Exception:
         traceback.print_exc()
-        await interaction.edit_original_response(
-            content="❌ Fehler beim Entfernen von der Whitelist."
-        )
-        schedule_delete(interaction)
+        await close_panel(interaction, "❌ Fehler beim Entfernen von der Whitelist.")
         return
 
     await update_list_message()
-    await interaction.edit_original_response(
-        content=f"✅ **{name}** wurde von der Whitelist entfernt."
-    )
-    schedule_delete(interaction)
+    await close_panel(interaction, f"✅ **{name}** wurde von der Whitelist entfernt.")
 
 
 @bot.tree.command(name="whitelist-liste", description="Zeigt alle gewhitelisteten Spieler (nur Admin)")
