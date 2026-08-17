@@ -16,10 +16,17 @@ WHITELIST_CHANNEL_ID = int(os.getenv("WHITELIST_CHANNEL_ID"))
 ADMIN_LOG_CHANNEL_ID = int(os.getenv("ADMIN_LOG_CHANNEL_ID"))
 WHITELIST_ROLE_ID = int(os.getenv("WHITELIST_ROLE_ID"))
 
+# Kanal für die Live-Liste der gewhitelisteten Spieler.
+# Ohne eigenen Eintrag landet die Liste im Whitelist-Kanal.
+WHITELIST_LIST_CHANNEL_ID = int(
+    os.getenv("WHITELIST_LIST_CHANNEL_ID") or WHITELIST_CHANNEL_ID
+)
+
 # TEST_MODE=true → RCON wird übersprungen, alles andere funktioniert normal
 TEST_MODE = os.getenv("TEST_MODE", "false").lower() == "true"
 
 WHITELIST_FILE = "whitelisted.json"
+LIST_STATE_FILE = "list_message.json"
 
 intents = discord.Intents.default()
 intents.members = True
@@ -27,16 +34,24 @@ intents.message_content = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 
 
-def load_whitelisted():
-    if os.path.exists(WHITELIST_FILE):
-        with open(WHITELIST_FILE, "r") as f:
+def _load_json(path, default):
+    if os.path.exists(path):
+        with open(path, "r") as f:
             return json.load(f)
-    return {}
+    return default
+
+
+def _save_json(path, data):
+    with open(path, "w") as f:
+        json.dump(data, f, indent=2)
+
+
+def load_whitelisted():
+    return _load_json(WHITELIST_FILE, {})
 
 
 def save_whitelisted(data):
-    with open(WHITELIST_FILE, "w") as f:
-        json.dump(data, f, indent=2)
+    _save_json(WHITELIST_FILE, data)
 
 
 def rcon_command(command):
@@ -46,6 +61,228 @@ def rcon_command(command):
     from mcrcon import MCRcon
     with MCRcon(RCON_HOST, RCON_PASSWORD, port=RCON_PORT) as mcr:
         return mcr.command(command)
+
+
+async def send_admin_log(embed):
+    channel = bot.get_channel(ADMIN_LOG_CHANNEL_ID)
+    if channel is None:
+        print(f"Admin-Log-Kanal {ADMIN_LOG_CHANNEL_ID} nicht gefunden")
+        return
+    try:
+        await channel.send(embed=embed)
+    except Exception:
+        traceback.print_exc()
+
+
+async def remove_entry(guild, user_id, actor):
+    """Entfernt einen Spieler von Whitelist, Rolle und Bot-Liste.
+
+    Gibt den Minecraft-Namen zurück, None wenn der Spieler nicht eingetragen war,
+    oder wirft weiter wenn RCON fehlschlägt.
+    """
+    whitelisted = load_whitelisted()
+    name = whitelisted.get(user_id)
+    if name is None:
+        return None
+
+    rcon_command(f"whitelist remove {name}")
+
+    del whitelisted[user_id]
+    save_whitelisted(whitelisted)
+
+    role = guild.get_role(WHITELIST_ROLE_ID)
+    member = guild.get_member(int(user_id))
+    if role and member:
+        try:
+            await member.remove_roles(role)
+        except Exception:
+            traceback.print_exc()
+
+    log = discord.Embed(
+        description=f"🗑️ <@{user_id}> (**{name}**) wurde von der Whitelist entfernt — durch {actor.mention}",
+        color=0xE74C3C,
+    )
+    await send_admin_log(log)
+    return name
+
+
+# ---------------------------------------------------------------- Live-Liste
+
+
+def build_list_embed():
+    whitelisted = load_whitelisted()
+    if whitelisted:
+        description = "\n".join(
+            f"<@{uid}> — **{name}**" for uid, name in whitelisted.items()
+        )
+    else:
+        description = "_Noch niemand gewhitelistet._"
+
+    embed = discord.Embed(
+        title="🔮 Gewhitelistete Spieler",
+        description=description,
+        color=0x9B59B6,
+    )
+    embed.add_field(
+        name="Eigenen Eintrag korrigieren",
+        value=(
+            "Vertippt? Klicke **Meinen Eintrag entfernen** und whiteliste dich "
+            "danach im Whitelist-Kanal neu."
+        ),
+        inline=False,
+    )
+    embed.set_footer(text=f"{len(whitelisted)} Spieler gewhitelistet")
+    return embed
+
+
+async def update_list_message():
+    channel = bot.get_channel(WHITELIST_LIST_CHANNEL_ID)
+    if channel is None:
+        print(f"Listen-Kanal {WHITELIST_LIST_CHANNEL_ID} nicht gefunden")
+        return
+
+    state = _load_json(LIST_STATE_FILE, {})
+    message = None
+    if state.get("channel_id") == channel.id and state.get("message_id"):
+        try:
+            message = await channel.fetch_message(state["message_id"])
+        except discord.NotFound:
+            message = None
+        except Exception:
+            traceback.print_exc()
+            return
+
+    embed = build_list_embed()
+    try:
+        if message:
+            await message.edit(embed=embed, view=ListView())
+        else:
+            message = await channel.send(embed=embed, view=ListView())
+            _save_json(
+                LIST_STATE_FILE,
+                {"channel_id": channel.id, "message_id": message.id},
+            )
+    except Exception:
+        traceback.print_exc()
+
+
+class AdminRemoveSelect(discord.ui.Select):
+    def __init__(self, whitelisted, guild):
+        options = []
+        # Discord erlaubt maximal 25 Einträge pro Auswahlmenü
+        for uid, name in list(whitelisted.items())[:25]:
+            member = guild.get_member(int(uid))
+            options.append(
+                discord.SelectOption(
+                    label=name,
+                    value=uid,
+                    description=str(member) if member else f"Discord ID {uid}",
+                )
+            )
+        super().__init__(
+            placeholder="Spieler auswählen…",
+            options=options,
+            min_values=1,
+            max_values=len(options),
+        )
+
+    async def callback(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+
+        removed, failed = [], []
+        for uid in self.values:
+            try:
+                name = await remove_entry(interaction.guild, uid, interaction.user)
+                if name:
+                    removed.append(name)
+            except Exception:
+                traceback.print_exc()
+                failed.append(uid)
+
+        await update_list_message()
+
+        parts = []
+        if removed:
+            parts.append("✅ Entfernt: " + ", ".join(f"**{n}**" for n in removed))
+        if failed:
+            parts.append(
+                "❌ Fehlgeschlagen (Serververbindung): "
+                + ", ".join(f"<@{uid}>" for uid in failed)
+            )
+        await interaction.followup.send("\n".join(parts) or "Nichts geändert.", ephemeral=True)
+
+
+class AdminRemoveView(discord.ui.View):
+    def __init__(self, whitelisted, guild):
+        super().__init__(timeout=120)
+        self.add_item(AdminRemoveSelect(whitelisted, guild))
+
+
+class ListView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=None)
+
+    @discord.ui.button(
+        label="Meinen Eintrag entfernen",
+        style=discord.ButtonStyle.danger,
+        emoji="🗑️",
+        custom_id="whitelist_self_remove",
+    )
+    async def self_remove(self, interaction: discord.Interaction, button: discord.ui.Button):
+        user_id = str(interaction.user.id)
+        if user_id not in load_whitelisted():
+            await interaction.response.send_message(
+                "Du bist aktuell nicht gewhitelistet.", ephemeral=True
+            )
+            return
+
+        await interaction.response.defer(ephemeral=True)
+        try:
+            name = await remove_entry(interaction.guild, user_id, interaction.user)
+        except Exception:
+            traceback.print_exc()
+            await interaction.followup.send(
+                "❌ Fehler beim Verbinden mit dem Server. Bitte kontaktiere einen Admin.",
+                ephemeral=True,
+            )
+            return
+
+        await update_list_message()
+        await interaction.followup.send(
+            f"✅ **{name}** wurde entfernt.\nDu kannst dich jetzt im Whitelist-Kanal neu eintragen.",
+            ephemeral=True,
+        )
+
+    @discord.ui.button(
+        label="Spieler entfernen",
+        style=discord.ButtonStyle.secondary,
+        emoji="🛠️",
+        custom_id="whitelist_admin_remove",
+    )
+    async def admin_remove(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not interaction.user.guild_permissions.administrator:
+            await interaction.response.send_message(
+                "❌ Dieser Button ist nur für Admins. "
+                "Deinen eigenen Eintrag entfernst du mit dem roten Button.",
+                ephemeral=True,
+            )
+            return
+
+        whitelisted = load_whitelisted()
+        if not whitelisted:
+            await interaction.response.send_message(
+                "Die Whitelist ist leer.", ephemeral=True
+            )
+            return
+
+        await interaction.response.send_message(
+            "Wen möchtest du entfernen?",
+            view=AdminRemoveView(whitelisted, interaction.guild),
+            ephemeral=True,
+        )
+
+
+# ------------------------------------------------------------------ Eintragen
 
 
 class WhitelistModal(discord.ui.Modal, title="🔮 Whitelist"):
@@ -64,7 +301,9 @@ class WhitelistModal(discord.ui.Modal, title="🔮 Whitelist"):
 
         if user_id in whitelisted:
             await interaction.response.send_message(
-                f"❌ Du bist bereits als **{whitelisted[user_id]}** gewhitelistet!",
+                f"❌ Du bist bereits als **{whitelisted[user_id]}** gewhitelistet!\n"
+                "Falls der Name falsch ist: entferne deinen Eintrag über den Button "
+                "in der Spielerliste und trage dich neu ein.",
                 ephemeral=True,
             )
             return
@@ -116,20 +355,14 @@ class WhitelistModal(discord.ui.Modal, title="🔮 Whitelist"):
             ephemeral=True,
         )
 
-        # Log im Admin-Kanal
-        admin_channel = bot.get_channel(ADMIN_LOG_CHANNEL_ID)
-        if admin_channel is None:
-            print(f"Admin-Log-Kanal {ADMIN_LOG_CHANNEL_ID} nicht gefunden")
-            return
-        try:
-            log = discord.Embed(
-                description=f"✅ {interaction.user.mention} (`{interaction.user}`) wurde als **{name}** gewhitelistet",
-                color=0x2ECC71,
-            )
-            log.set_footer(text=f"Discord ID: {interaction.user.id}")
-            await admin_channel.send(embed=log)
-        except Exception:
-            traceback.print_exc()
+        log = discord.Embed(
+            description=f"✅ {interaction.user.mention} (`{interaction.user}`) wurde als **{name}** gewhitelistet",
+            color=0x2ECC71,
+        )
+        log.set_footer(text=f"Discord ID: {interaction.user.id}")
+        await send_admin_log(log)
+
+        await update_list_message()
 
 
 class WhitelistButton(discord.ui.View):
@@ -158,7 +391,7 @@ def build_instructions_embed():
             "1. Klicke auf den **Whitelisten** Button\n"
             "2. Gib deinen **exakten** Minecraft-Benutzernamen ein\n"
             "3. Du wirst automatisch gewhitelistet und bekommst die Rolle\n"
-            "4. Du kannst dich nur **einmal** whitelisten"
+            "4. Vertippt? Entferne deinen Eintrag in der Spielerliste und trage dich neu ein"
         ),
         inline=False,
     )
@@ -175,6 +408,7 @@ async def ensure_instructions(channel):
 @bot.event
 async def on_ready():
     bot.add_view(WhitelistButton())
+    bot.add_view(ListView())
     await bot.tree.sync()
     print(f"🔮 Bot ist online als {bot.user}")
 
@@ -188,13 +422,15 @@ async def on_ready():
         if not bot_pin:
             await ensure_instructions(channel)
 
+    await update_list_message()
+
 
 @bot.event
 async def on_message(message):
     if message.author.bot:
         return
 
-    if message.channel.id == WHITELIST_CHANNEL_ID:
+    if message.channel.id in (WHITELIST_CHANNEL_ID, WHITELIST_LIST_CHANNEL_ID):
         await message.delete()
         return
 
@@ -207,63 +443,35 @@ async def on_message(message):
 async def whitelist_remove(interaction: discord.Interaction, minecraft_name: str):
     await interaction.response.defer(ephemeral=True)
 
+    user_id = next(
+        (uid for uid, name in load_whitelisted().items() if name.lower() == minecraft_name.lower()),
+        None,
+    )
+    if user_id is None:
+        await interaction.followup.send(
+            f"❌ **{minecraft_name}** steht nicht auf der Whitelist.", ephemeral=True
+        )
+        return
+
     try:
-        rcon_command(f"whitelist remove {minecraft_name}")
-
-        whitelisted = load_whitelisted()
-        role = interaction.guild.get_role(WHITELIST_ROLE_ID)
-
-        for uid, name in list(whitelisted.items()):
-            if name.lower() == minecraft_name.lower():
-                del whitelisted[uid]
-                save_whitelisted(whitelisted)
-
-                if role:
-                    member = interaction.guild.get_member(int(uid))
-                    if member:
-                        await member.remove_roles(role)
-                break
-
+        name = await remove_entry(interaction.guild, user_id, interaction.user)
+    except Exception:
+        traceback.print_exc()
         await interaction.followup.send(
-            f"✅ **{minecraft_name}** wurde von der Whitelist entfernt.",
-            ephemeral=True,
+            "❌ Fehler beim Entfernen von der Whitelist.", ephemeral=True
         )
+        return
 
-        admin_channel = bot.get_channel(ADMIN_LOG_CHANNEL_ID)
-        if admin_channel:
-            log = discord.Embed(
-                description=f"🗑️ **{minecraft_name}** wurde von der Whitelist entfernt von {interaction.user.mention}",
-                color=0xE74C3C,
-            )
-            await admin_channel.send(embed=log)
-
-    except Exception as e:
-        print(f"RCON Fehler: {e}")
-        await interaction.followup.send(
-            "❌ Fehler beim Entfernen von der Whitelist.",
-            ephemeral=True,
-        )
+    await update_list_message()
+    await interaction.followup.send(
+        f"✅ **{name}** wurde von der Whitelist entfernt.", ephemeral=True
+    )
 
 
 @bot.tree.command(name="whitelist-liste", description="Zeigt alle gewhitelisteten Spieler (nur Admin)")
 @app_commands.checks.has_permissions(administrator=True)
 async def whitelist_list(interaction: discord.Interaction):
-    whitelisted = load_whitelisted()
-
-    if not whitelisted:
-        await interaction.response.send_message("Die Whitelist ist leer.", ephemeral=True)
-        return
-
-    entries = "\n".join(
-        [f"<@{uid}> → **{name}**" for uid, name in whitelisted.items()]
-    )
-    embed = discord.Embed(
-        title="🔮 Whitelist",
-        description=entries,
-        color=0x9B59B6,
-    )
-    embed.set_footer(text=f"{len(whitelisted)} Spieler gewhitelistet")
-    await interaction.response.send_message(embed=embed, ephemeral=True)
+    await interaction.response.send_message(embed=build_list_embed(), ephemeral=True)
 
 
 bot.run(DISCORD_TOKEN)
