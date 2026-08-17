@@ -28,6 +28,7 @@ TEST_MODE = os.getenv("TEST_MODE", "false").lower() == "true"
 
 WHITELIST_FILE = "whitelisted.json"
 LIST_STATE_FILE = "list_message.json"
+INSTRUCTIONS_STATE_FILE = "instructions_message.json"
 
 intents = discord.Intents.default()
 intents.members = True
@@ -149,33 +150,38 @@ def build_list_embed():
     return embed
 
 
+async def fetch_tracked_message(channel, state_file):
+    """Holt die gemerkte Bot-Nachricht, oder None wenn sie nicht mehr existiert."""
+    state = _load_json(state_file, {})
+    if state.get("channel_id") != channel.id or not state.get("message_id"):
+        return None
+    try:
+        return await channel.fetch_message(state["message_id"])
+    except discord.NotFound:
+        return None
+    except Exception:
+        traceback.print_exc()
+        return None
+
+
+def save_tracked_message(state_file, channel, message):
+    _save_json(state_file, {"channel_id": channel.id, "message_id": message.id})
+
+
 async def update_list_message():
     channel = bot.get_channel(WHITELIST_LIST_CHANNEL_ID)
     if channel is None:
         print(f"Listen-Kanal {WHITELIST_LIST_CHANNEL_ID} nicht gefunden")
         return
 
-    state = _load_json(LIST_STATE_FILE, {})
-    message = None
-    if state.get("channel_id") == channel.id and state.get("message_id"):
-        try:
-            message = await channel.fetch_message(state["message_id"])
-        except discord.NotFound:
-            message = None
-        except Exception:
-            traceback.print_exc()
-            return
-
+    message = await fetch_tracked_message(channel, LIST_STATE_FILE)
     embed = build_list_embed()
     try:
         if message:
             await message.edit(embed=embed, view=ListView())
         else:
             message = await channel.send(embed=embed, view=ListView())
-            _save_json(
-                LIST_STATE_FILE,
-                {"channel_id": channel.id, "message_id": message.id},
-            )
+            save_tracked_message(LIST_STATE_FILE, channel, message)
     except Exception:
         traceback.print_exc()
 
@@ -473,10 +479,28 @@ def build_instructions_embed():
     return embed
 
 
-async def ensure_instructions(channel):
-    await channel.purge(limit=100)
-    msg = await channel.send(embed=build_instructions_embed(), view=WhitelistButton())
-    await msg.pin()
+async def ensure_instructions():
+    """Hält genau eine Anleitungs-Nachricht im Whitelist-Kanal aktuell."""
+    channel = bot.get_channel(WHITELIST_CHANNEL_ID)
+    if channel is None:
+        print(f"Whitelist-Kanal {WHITELIST_CHANNEL_ID} nicht gefunden")
+        return
+
+    message = await fetch_tracked_message(channel, INSTRUCTIONS_STATE_FILE)
+    embed = build_instructions_embed()
+    try:
+        if message:
+            await message.edit(embed=embed, view=WhitelistButton())
+            return
+
+        message = await channel.send(embed=embed, view=WhitelistButton())
+        save_tracked_message(INSTRUCTIONS_STATE_FILE, channel, message)
+        try:
+            await message.pin()
+        except discord.HTTPException:
+            traceback.print_exc()  # Anpinnen ist nur Komfort, kein Grund neu zu posten
+    except Exception:
+        traceback.print_exc()
 
 
 @bot.event
@@ -486,16 +510,7 @@ async def on_ready():
     await bot.tree.sync()
     print(f"🔮 Bot ist online als {bot.user}")
 
-    channel = bot.get_channel(WHITELIST_CHANNEL_ID)
-    if channel:
-        bot_pin = False
-        async for message in channel.pins():
-            if message.author == bot.user:
-                bot_pin = True
-                break
-        if not bot_pin:
-            await ensure_instructions(channel)
-
+    await ensure_instructions()
     await update_list_message()
 
 
