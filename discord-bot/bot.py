@@ -126,8 +126,8 @@ def build_list_embed():
     embed.add_field(
         name="Eigenen Eintrag korrigieren",
         value=(
-            "Vertippt? Klicke **Meinen Eintrag entfernen** und whiteliste dich "
-            "danach im Whitelist-Kanal neu."
+            "Klicke **Mein Eintrag** — dort siehst du deinen eigenen Namen und "
+            "kannst ihn entfernen. Danach trägst du dich im Whitelist-Kanal neu ein."
         ),
         inline=False,
     )
@@ -218,27 +218,24 @@ class AdminRemoveView(discord.ui.View):
         self.add_item(AdminRemoveSelect(whitelisted, guild))
 
 
-class ListView(discord.ui.View):
-    def __init__(self):
-        super().__init__(timeout=None)
+class MyEntryView(discord.ui.View):
+    """Private Ansicht des eigenen Eintrags mit Entfernen-Button."""
+
+    def __init__(self, name):
+        super().__init__(timeout=120)
+        self.name = name
 
     @discord.ui.button(
-        label="Meinen Eintrag entfernen",
+        label="Von der Whitelist entfernen",
         style=discord.ButtonStyle.danger,
         emoji="🗑️",
-        custom_id="whitelist_self_remove",
     )
-    async def self_remove(self, interaction: discord.Interaction, button: discord.ui.Button):
-        user_id = str(interaction.user.id)
-        if user_id not in load_whitelisted():
-            await interaction.response.send_message(
-                "Du bist aktuell nicht gewhitelistet.", ephemeral=True
-            )
-            return
-
+    async def remove(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer(ephemeral=True)
         try:
-            name = await remove_entry(interaction.guild, user_id, interaction.user)
+            name = await remove_entry(
+                interaction.guild, str(interaction.user.id), interaction.user
+            )
         except Exception:
             traceback.print_exc()
             await interaction.followup.send(
@@ -247,10 +244,48 @@ class ListView(discord.ui.View):
             )
             return
 
+        if name is None:
+            await interaction.followup.send(
+                "Dein Eintrag wurde zwischenzeitlich bereits entfernt.", ephemeral=True
+            )
+            return
+
         await update_list_message()
         await interaction.followup.send(
             f"✅ **{name}** wurde entfernt.\nDu kannst dich jetzt im Whitelist-Kanal neu eintragen.",
             ephemeral=True,
+        )
+
+
+class ListView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=None)
+
+    @discord.ui.button(
+        label="Mein Eintrag",
+        style=discord.ButtonStyle.primary,
+        emoji="👤",
+        custom_id="whitelist_my_entry",
+    )
+    async def my_entry(self, interaction: discord.Interaction, button: discord.ui.Button):
+        name = load_whitelisted().get(str(interaction.user.id))
+
+        if name is None:
+            await interaction.response.send_message(
+                "Du bist aktuell **nicht** gewhitelistet.\n"
+                "Trage dich im Whitelist-Kanal über den 🔮 Button ein.",
+                ephemeral=True,
+            )
+            return
+
+        embed = discord.Embed(
+            title="👤 Dein Eintrag",
+            description=f"Du bist als **{name}** gewhitelistet.",
+            color=0x9B59B6,
+        )
+        embed.set_footer(text="Falscher Name? Entfernen und im Whitelist-Kanal neu eintragen.")
+        await interaction.response.send_message(
+            embed=embed, view=MyEntryView(name), ephemeral=True
         )
 
     @discord.ui.button(
