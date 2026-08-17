@@ -1,3 +1,4 @@
+import asyncio
 import discord
 from discord import app_commands
 from discord.ext import commands
@@ -61,6 +62,19 @@ def rcon_command(command):
     from mcrcon import MCRcon
     with MCRcon(RCON_HOST, RCON_PASSWORD, port=RCON_PORT) as mcr:
         return mcr.command(command)
+
+
+def schedule_delete(interaction, delay=20):
+    """Räumt die private Antwort des Bots nach `delay` Sekunden weg."""
+
+    async def _delete():
+        await asyncio.sleep(delay)
+        try:
+            await interaction.delete_original_response()
+        except discord.HTTPException:
+            pass  # User hat sie selbst verworfen oder sie ist abgelaufen
+
+    asyncio.create_task(_delete())
 
 
 async def send_admin_log(embed):
@@ -187,7 +201,7 @@ class AdminRemoveSelect(discord.ui.Select):
         )
 
     async def callback(self, interaction: discord.Interaction):
-        await interaction.response.defer(ephemeral=True)
+        await interaction.response.defer()
 
         removed, failed = [], []
         for uid in self.values:
@@ -209,20 +223,40 @@ class AdminRemoveSelect(discord.ui.Select):
                 "❌ Fehlgeschlagen (Serververbindung): "
                 + ", ".join(f"<@{uid}>" for uid in failed)
             )
-        await interaction.followup.send("\n".join(parts) or "Nichts geändert.", ephemeral=True)
+        await close_panel(interaction, "\n".join(parts) or "Nichts geändert.")
 
 
-class AdminRemoveView(discord.ui.View):
-    def __init__(self, whitelisted, guild):
-        super().__init__(timeout=120)
+class EphemeralPanel(discord.ui.View):
+    """Privates Panel, das sich nach Gebrauch bzw. bei Nichtbenutzung selbst entfernt."""
+
+    def __init__(self, origin, timeout=120):
+        super().__init__(timeout=timeout)
+        self.origin = origin
+
+    async def on_timeout(self):
+        try:
+            await self.origin.delete_original_response()
+        except discord.HTTPException:
+            pass
+
+
+async def close_panel(interaction, text, delay=20):
+    """Ersetzt das Panel durch das Ergebnis und räumt es danach weg."""
+    await interaction.edit_original_response(content=text, embed=None, view=None)
+    schedule_delete(interaction, delay)
+
+
+class AdminRemoveView(EphemeralPanel):
+    def __init__(self, whitelisted, guild, origin):
+        super().__init__(origin)
         self.add_item(AdminRemoveSelect(whitelisted, guild))
 
 
-class MyEntryView(discord.ui.View):
+class MyEntryView(EphemeralPanel):
     """Private Ansicht des eigenen Eintrags mit Entfernen-Button."""
 
-    def __init__(self, name):
-        super().__init__(timeout=120)
+    def __init__(self, name, origin):
+        super().__init__(origin)
         self.name = name
 
     @discord.ui.button(
@@ -231,29 +265,29 @@ class MyEntryView(discord.ui.View):
         emoji="🗑️",
     )
     async def remove(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.defer(ephemeral=True)
+        await interaction.response.defer()
         try:
             name = await remove_entry(
                 interaction.guild, str(interaction.user.id), interaction.user
             )
         except Exception:
             traceback.print_exc()
-            await interaction.followup.send(
+            await close_panel(
+                interaction,
                 "❌ Fehler beim Verbinden mit dem Server. Bitte kontaktiere einen Admin.",
-                ephemeral=True,
             )
             return
 
         if name is None:
-            await interaction.followup.send(
-                "Dein Eintrag wurde zwischenzeitlich bereits entfernt.", ephemeral=True
+            await close_panel(
+                interaction, "Dein Eintrag wurde zwischenzeitlich bereits entfernt."
             )
             return
 
         await update_list_message()
-        await interaction.followup.send(
+        await close_panel(
+            interaction,
             f"✅ **{name}** wurde entfernt.\nDu kannst dich jetzt im Whitelist-Kanal neu eintragen.",
-            ephemeral=True,
         )
 
 
@@ -276,6 +310,7 @@ class ListView(discord.ui.View):
                 "Trage dich im Whitelist-Kanal über den 🔮 Button ein.",
                 ephemeral=True,
             )
+            schedule_delete(interaction)
             return
 
         embed = discord.Embed(
@@ -285,7 +320,7 @@ class ListView(discord.ui.View):
         )
         embed.set_footer(text="Falscher Name? Entfernen und im Whitelist-Kanal neu eintragen.")
         await interaction.response.send_message(
-            embed=embed, view=MyEntryView(name), ephemeral=True
+            embed=embed, view=MyEntryView(name, interaction), ephemeral=True
         )
 
     @discord.ui.button(
@@ -298,9 +333,10 @@ class ListView(discord.ui.View):
         if not interaction.user.guild_permissions.administrator:
             await interaction.response.send_message(
                 "❌ Dieser Button ist nur für Admins. "
-                "Deinen eigenen Eintrag entfernst du mit dem roten Button.",
+                "Deinen eigenen Eintrag entfernst du über **Mein Eintrag**.",
                 ephemeral=True,
             )
+            schedule_delete(interaction)
             return
 
         whitelisted = load_whitelisted()
@@ -308,11 +344,12 @@ class ListView(discord.ui.View):
             await interaction.response.send_message(
                 "Die Whitelist ist leer.", ephemeral=True
             )
+            schedule_delete(interaction)
             return
 
         await interaction.response.send_message(
             "Wen möchtest du entfernen?",
-            view=AdminRemoveView(whitelisted, interaction.guild),
+            view=AdminRemoveView(whitelisted, interaction.guild, interaction),
             ephemeral=True,
         )
 
@@ -337,10 +374,11 @@ class WhitelistModal(discord.ui.Modal, title="🔮 Whitelist"):
         if user_id in whitelisted:
             await interaction.response.send_message(
                 f"❌ Du bist bereits als **{whitelisted[user_id]}** gewhitelistet!\n"
-                "Falls der Name falsch ist: entferne deinen Eintrag über den Button "
+                "Falls der Name falsch ist: entferne deinen Eintrag über **Mein Eintrag** "
                 "in der Spielerliste und trage dich neu ein.",
                 ephemeral=True,
             )
+            schedule_delete(interaction)
             return
 
         # Minecraft-Name validieren
@@ -350,6 +388,7 @@ class WhitelistModal(discord.ui.Modal, title="🔮 Whitelist"):
                 "❌ Ungültiger Minecraft Name!\nNur Buchstaben, Zahlen und `_` erlaubt.",
                 ephemeral=True,
             )
+            schedule_delete(interaction)
             return
 
         await interaction.response.defer(ephemeral=True)
@@ -359,10 +398,10 @@ class WhitelistModal(discord.ui.Modal, title="🔮 Whitelist"):
             rcon_command(f"whitelist add {name}")
         except Exception:
             traceback.print_exc()
-            await interaction.followup.send(
-                "❌ Fehler beim Verbinden mit dem Server. Bitte kontaktiere einen Admin.",
-                ephemeral=True,
+            await interaction.edit_original_response(
+                content="❌ Fehler beim Verbinden mit dem Server. Bitte kontaktiere einen Admin."
             )
+            schedule_delete(interaction)
             return
 
         whitelisted[user_id] = name
@@ -384,11 +423,11 @@ class WhitelistModal(discord.ui.Modal, title="🔮 Whitelist"):
                     "die Bot-Rolle muss in den Servereinstellungen darüber stehen."
                 )
 
-        await interaction.followup.send(
-            f"✅ **{name}** wurde erfolgreich zur Whitelist hinzugefügt!\n"
-            "Du kannst jetzt dem Server beitreten." + role_hint,
-            ephemeral=True,
+        await interaction.edit_original_response(
+            content=f"✅ **{name}** wurde erfolgreich zur Whitelist hinzugefügt!\n"
+            "Du kannst jetzt dem Server beitreten." + role_hint
         )
+        schedule_delete(interaction, 30)
 
         log = discord.Embed(
             description=f"✅ {interaction.user.mention} (`{interaction.user}`) wurde als **{name}** gewhitelistet",
@@ -483,30 +522,34 @@ async def whitelist_remove(interaction: discord.Interaction, minecraft_name: str
         None,
     )
     if user_id is None:
-        await interaction.followup.send(
-            f"❌ **{minecraft_name}** steht nicht auf der Whitelist.", ephemeral=True
+        await interaction.edit_original_response(
+            content=f"❌ **{minecraft_name}** steht nicht auf der Whitelist."
         )
+        schedule_delete(interaction)
         return
 
     try:
         name = await remove_entry(interaction.guild, user_id, interaction.user)
     except Exception:
         traceback.print_exc()
-        await interaction.followup.send(
-            "❌ Fehler beim Entfernen von der Whitelist.", ephemeral=True
+        await interaction.edit_original_response(
+            content="❌ Fehler beim Entfernen von der Whitelist."
         )
+        schedule_delete(interaction)
         return
 
     await update_list_message()
-    await interaction.followup.send(
-        f"✅ **{name}** wurde von der Whitelist entfernt.", ephemeral=True
+    await interaction.edit_original_response(
+        content=f"✅ **{name}** wurde von der Whitelist entfernt."
     )
+    schedule_delete(interaction)
 
 
 @bot.tree.command(name="whitelist-liste", description="Zeigt alle gewhitelisteten Spieler (nur Admin)")
 @app_commands.checks.has_permissions(administrator=True)
 async def whitelist_list(interaction: discord.Interaction):
     await interaction.response.send_message(embed=build_list_embed(), ephemeral=True)
+    schedule_delete(interaction, 60)
 
 
 bot.run(DISCORD_TOKEN)
