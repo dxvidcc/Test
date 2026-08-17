@@ -3,6 +3,7 @@ from discord import app_commands
 from discord.ext import commands
 import json
 import os
+import traceback
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -79,39 +80,56 @@ class WhitelistModal(discord.ui.Modal, title="🔮 Whitelist"):
 
         await interaction.response.defer(ephemeral=True)
 
+        # Minecraft-Whitelist per RCON — schlägt das fehl, brechen wir ab
         try:
             rcon_command(f"whitelist add {name}")
-
-            whitelisted[user_id] = name
-            save_whitelisted(whitelisted)
-
-            # Whitelisted-Rolle vergeben
-            role = interaction.guild.get_role(WHITELIST_ROLE_ID)
-            if role:
-                await interaction.user.add_roles(role)
-
-            await interaction.followup.send(
-                f"✅ **{name}** wurde erfolgreich zur Whitelist hinzugefügt!\n"
-                f"Du hast die Rolle {role.mention if role else '**Whitelisted**'} erhalten und kannst jetzt dem Server beitreten.",
-                ephemeral=True,
-            )
-
-            # Log im Admin-Kanal
-            admin_channel = bot.get_channel(ADMIN_LOG_CHANNEL_ID)
-            if admin_channel:
-                log = discord.Embed(
-                    description=f"✅ {interaction.user.mention} (`{interaction.user}`) wurde als **{name}** gewhitelistet",
-                    color=0x2ECC71,
-                )
-                log.set_footer(text=f"Discord ID: {interaction.user.id}")
-                await admin_channel.send(embed=log)
-
-        except Exception as e:
-            print(f"RCON Fehler: {e}")
+        except Exception:
+            traceback.print_exc()
             await interaction.followup.send(
                 "❌ Fehler beim Verbinden mit dem Server. Bitte kontaktiere einen Admin.",
                 ephemeral=True,
             )
+            return
+
+        whitelisted[user_id] = name
+        save_whitelisted(whitelisted)
+
+        # Rolle vergeben — scheitert das (z.B. Rollen-Hierarchie), läuft der Rest trotzdem weiter
+        role = interaction.guild.get_role(WHITELIST_ROLE_ID)
+        role_hint = ""
+        if role is None:
+            role_hint = "\n⚠️ Rolle nicht gefunden — prüfe `WHITELIST_ROLE_ID`."
+            print(f"Rolle {WHITELIST_ROLE_ID} existiert nicht auf diesem Server")
+        else:
+            try:
+                await interaction.user.add_roles(role)
+            except Exception:
+                traceback.print_exc()
+                role_hint = (
+                    f"\n⚠️ Die Rolle **{role.name}** konnte nicht vergeben werden — "
+                    "die Bot-Rolle muss in den Servereinstellungen darüber stehen."
+                )
+
+        await interaction.followup.send(
+            f"✅ **{name}** wurde erfolgreich zur Whitelist hinzugefügt!\n"
+            "Du kannst jetzt dem Server beitreten." + role_hint,
+            ephemeral=True,
+        )
+
+        # Log im Admin-Kanal
+        admin_channel = bot.get_channel(ADMIN_LOG_CHANNEL_ID)
+        if admin_channel is None:
+            print(f"Admin-Log-Kanal {ADMIN_LOG_CHANNEL_ID} nicht gefunden")
+            return
+        try:
+            log = discord.Embed(
+                description=f"✅ {interaction.user.mention} (`{interaction.user}`) wurde als **{name}** gewhitelistet",
+                color=0x2ECC71,
+            )
+            log.set_footer(text=f"Discord ID: {interaction.user.id}")
+            await admin_channel.send(embed=log)
+        except Exception:
+            traceback.print_exc()
 
 
 class WhitelistButton(discord.ui.View):
@@ -162,8 +180,11 @@ async def on_ready():
 
     channel = bot.get_channel(WHITELIST_CHANNEL_ID)
     if channel:
-        pins = await channel.pins()
-        bot_pin = any(p.author == bot.user for p in pins)
+        bot_pin = False
+        async for message in channel.pins():
+            if message.author == bot.user:
+                bot_pin = True
+                break
         if not bot_pin:
             await ensure_instructions(channel)
 
