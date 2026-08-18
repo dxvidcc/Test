@@ -39,8 +39,8 @@ DIMENSIONS_FILE = "dimensions.json"
 
 # Dimensionen, die das Panel schalten kann — Schlüssel muss zur Permission passen.
 DIMENSIONS = {
-    "nether": {"label": "Nether", "emoji": "🔥"},
-    "end": {"label": "End", "emoji": "🌌"},
+    "nether": {"label": "Nether"},
+    "end": {"label": "End"},
 }
 
 intents = discord.Intents.default()
@@ -580,15 +580,15 @@ class AdminPanelView(discord.ui.View):
         )
         await update_panel_message()
 
-    @discord.ui.button(label="Nether", emoji="🔥", style=discord.ButtonStyle.secondary, custom_id="panel_toggle_nether")
+    @discord.ui.button(label="Nether", style=discord.ButtonStyle.secondary, custom_id="panel_toggle_nether")
     async def toggle_nether(self, interaction: discord.Interaction, button: discord.ui.Button):
         await self.toggle(interaction, "nether")
 
-    @discord.ui.button(label="End", emoji="🌌", style=discord.ButtonStyle.secondary, custom_id="panel_toggle_end")
+    @discord.ui.button(label="End", style=discord.ButtonStyle.secondary, custom_id="panel_toggle_end")
     async def toggle_end(self, interaction: discord.Interaction, button: discord.ui.Button):
         await self.toggle(interaction, "end")
 
-    @discord.ui.button(label="Kicken", emoji="👢", style=discord.ButtonStyle.primary, custom_id="panel_kick")
+    @discord.ui.button(label="Kicken", style=discord.ButtonStyle.primary, custom_id="panel_kick")
     async def kick(self, interaction: discord.Interaction, button: discord.ui.Button):
         if await deny_non_admin(interaction):
             return
@@ -616,13 +616,13 @@ class AdminPanelView(discord.ui.View):
             ephemeral=True,
         )
 
-    @discord.ui.button(label="Bannen", emoji="🔨", style=discord.ButtonStyle.danger, custom_id="panel_ban")
+    @discord.ui.button(label="Bannen", style=discord.ButtonStyle.danger, custom_id="panel_ban")
     async def ban(self, interaction: discord.Interaction, button: discord.ui.Button):
         if await deny_non_admin(interaction):
             return
         await interaction.response.send_modal(BanModal())
 
-    @discord.ui.button(label="Entbannen", emoji="♻️", style=discord.ButtonStyle.success, custom_id="panel_unban")
+    @discord.ui.button(label="Entbannen", style=discord.ButtonStyle.success, custom_id="panel_unban")
     async def unban(self, interaction: discord.Interaction, button: discord.ui.Button):
         if await deny_non_admin(interaction):
             return
