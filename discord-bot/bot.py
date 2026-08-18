@@ -408,17 +408,29 @@ def get_online_players():
     return [name.strip() for name in names.split(",") if name.strip()]
 
 
-def build_panel_embed():
+def build_panel_embed(guild=None):
     state = load_dimensions()
 
-    embed = discord.Embed(color=0x9D4EDD)
-    embed.set_author(name="ᴀᴅᴍɪɴ-ᴘᴀɴᴇʟ")
+    try:
+        players = get_online_players()
+        online = f"👥 {len(players)}" + (f"\n{', '.join(players[:5])}" if players else "\nniemand")
+    except Exception:
+        traceback.print_exc()
+        online = "👥 —\nnicht erreichbar"
+
+    embed = discord.Embed(title="ᴀᴅᴍɪɴ-ᴘᴀɴᴇʟ", color=0x9D4EDD)
+    if guild and guild.icon:
+        embed.set_thumbnail(url=guild.icon.url)
+
     for key, meta in DIMENSIONS.items():
         embed.add_field(
             name=meta["caps"],
             value="🟢 offen" if state[key] else "🔴 gesperrt",
             inline=True,
         )
+    embed.add_field(name="ᴏɴʟɪɴᴇ", value=online, inline=True)
+
+    embed.set_footer(text=f"{RCON_HOST}:25565")
     embed.timestamp = discord.utils.utcnow()
     return embed
 
@@ -430,7 +442,7 @@ async def update_panel_message():
         return
 
     message = await fetch_tracked_message(channel, PANEL_STATE_FILE)
-    embed = build_panel_embed()
+    embed = build_panel_embed(channel.guild)
     try:
         if message:
             await message.edit(embed=embed, view=AdminPanelView())
