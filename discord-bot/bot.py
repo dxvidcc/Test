@@ -39,8 +39,8 @@ DIMENSIONS_FILE = "dimensions.json"
 
 # Dimensionen, die das Panel schalten kann — Schlüssel muss zur Permission passen.
 DIMENSIONS = {
-    "nether": {"label": "Nether"},
-    "end": {"label": "End"},
+    "nether": {"label": "Nether", "caps": "ɴᴇᴛʜᴇʀ"},
+    "end": {"label": "End", "caps": "ᴇɴᴅ"},
 }
 
 intents = discord.Intents.default()
@@ -411,19 +411,14 @@ def get_online_players():
 def build_panel_embed():
     state = load_dimensions()
 
-    # ANSI-Codeblock: färbt den Status und hält die Spalten bündig.
-    # Clients ohne ANSI zeigen einfach den unfärbigen Text — bleibt lesbar.
-    rows = []
+    embed = discord.Embed(color=0x9D4EDD)
+    embed.set_author(name="ᴀᴅᴍɪɴ-ᴘᴀɴᴇʟ")
     for key, meta in DIMENSIONS.items():
-        colour = "\u001b[0;32m" if state[key] else "\u001b[0;31m"
-        status = "offen" if state[key] else "gesperrt"
-        rows.append(f"{meta['label']:<10}{colour}{status}\u001b[0m")
-
-    embed = discord.Embed(
-        title="ᴀᴅᴍɪɴ-ᴘᴀɴᴇʟ",
-        description="```ansi\n" + "\n".join(rows) + "\n```",
-        color=0x9D4EDD,
-    )
+        embed.add_field(
+            name=meta["caps"],
+            value="🟢 offen" if state[key] else "🔴 gesperrt",
+            inline=True,
+        )
     embed.timestamp = discord.utils.utcnow()
     return embed
 
