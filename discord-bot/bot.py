@@ -410,18 +410,22 @@ def get_online_players():
 
 def build_panel_embed():
     state = load_dimensions()
-    lines = []
-    for key, meta in DIMENSIONS.items():
-        icon = "🟢" if state[key] else "🔴"
-        lines.append(
-            f"{icon} **{meta['label']}** — {'offen' if state[key] else 'gesperrt'}"
-        )
 
-    return discord.Embed(
-        title="🛠️ Admin-Panel",
-        description="\n".join(lines),
-        color=0x9B59B6,
+    # ANSI-Codeblock: färbt den Status und hält die Spalten bündig.
+    # Clients ohne ANSI zeigen einfach den unfärbigen Text — bleibt lesbar.
+    rows = []
+    for key, meta in DIMENSIONS.items():
+        colour = "\u001b[0;32m" if state[key] else "\u001b[0;31m"
+        status = "offen" if state[key] else "gesperrt"
+        rows.append(f"{meta['label']:<10}{colour}{status}\u001b[0m")
+
+    embed = discord.Embed(
+        title="ᴀᴅᴍɪɴ-ᴘᴀɴᴇʟ",
+        description="```ansi\n" + "\n".join(rows) + "\n```",
+        color=0x9D4EDD,
     )
+    embed.timestamp = discord.utils.utcnow()
+    return embed
 
 
 async def update_panel_message():
