@@ -367,6 +367,24 @@ def _first_number(text):
     return float(match.group()) if match else None
 
 
+def strip_codes(text):
+    """Entfernt Minecraft-Formatierung, damit keine Farbcodes als Zahlen gelesen werden."""
+    text = re.sub(r"\u00a7.", "", text or "")
+    return re.sub(r"<[^>]*>", "", text)
+
+
+def parse_tps(response):
+    """Liest den 1-Minuten-Mittelwert aus der Antwort von `tps`.
+
+    Die Antwort lautet etwa "§6TPS from last 1m, 5m, 15m: §a20.0, 20.0, 20.0" —
+    ohne Bereinigung würde die 6 aus dem Farbcode bzw. die 1 aus "1m" gefunden.
+    """
+    clean = strip_codes(response)
+    if ":" in clean:
+        clean = clean.rsplit(":", 1)[1]
+    return _first_number(clean)
+
+
 def collect_server_info():
     """Holt Live-Daten vom Server. Gibt None zurück, wenn er nicht erreichbar ist."""
     names = list(load_whitelisted().values())
@@ -378,7 +396,7 @@ def collect_server_info():
         traceback.print_exc()
         return None
 
-    list_response = responses[0] or ""
+    list_response = strip_codes(responses[0])
     players = []
     if ":" in list_response:
         players = [p.strip() for p in list_response.split(":", 1)[1].split(",") if p.strip()]
@@ -386,7 +404,7 @@ def collect_server_info():
     numbers = re.findall(r"\d+", list_response)
     maximum = numbers[1] if len(numbers) > 1 else "?"
 
-    tps = _first_number(responses[1])
+    tps = parse_tps(responses[1])
 
     # Ohne Eintrag im Scoreboard antwortet der Server mit einer Fehlermeldung
     # statt einer Zahl — dann hatte der Spieler schlicht noch keinen Tod.
