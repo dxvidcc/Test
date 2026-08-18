@@ -1,9 +1,10 @@
 import asyncio
 import discord
 from discord import app_commands
-from discord.ext import commands
+from discord.ext import commands, tasks
 import json
 import os
+import re
 import traceback
 from dotenv import load_dotenv
 
@@ -22,12 +23,16 @@ ADMIN_PANEL_CHANNEL_ID = int(
     os.getenv("ADMIN_PANEL_CHANNEL_ID") or ADMIN_LOG_CHANNEL_ID
 )
 
+# Öffentlicher Info-Kanal. Ohne Eintrag wird kein Info-Panel gepflegt.
+INFO_CHANNEL_ID = int(os.getenv("INFO_CHANNEL_ID") or 0)
+
 # TEST_MODE=true → RCON wird übersprungen, alles andere funktioniert normal
 TEST_MODE = os.getenv("TEST_MODE", "false").lower() == "true"
 
 WHITELIST_FILE = "whitelisted.json"
 INSTRUCTIONS_STATE_FILE = "instructions_message.json"
 PANEL_STATE_FILE = "panel_message.json"
+INFO_STATE_FILE = "info_message.json"
 DIMENSIONS_FILE = "dimensions.json"
 
 # Dimensionen, die das Panel schalten kann — Schlüssel muss zur Permission passen.
@@ -69,6 +74,17 @@ def rcon_command(command):
     from mcrcon import MCRcon
     with MCRcon(RCON_HOST, RCON_PASSWORD, port=RCON_PORT) as mcr:
         return mcr.command(command)
+
+
+def rcon_many(commands_):
+    """Führt mehrere Befehle über eine einzige RCON-Verbindung aus."""
+    if TEST_MODE:
+        for command in commands_:
+            print(f"[TEST MODE] RCON übersprungen: {command}")
+        return [""] * len(commands_)
+    from mcrcon import MCRcon
+    with MCRcon(RCON_HOST, RCON_PASSWORD, port=RCON_PORT) as mcr:
+        return [mcr.command(command) for command in commands_]
 
 
 def schedule_delete(interaction, delay=20):
@@ -333,6 +349,122 @@ class WhitelistPanelView(discord.ui.View):
             view=AdminRemoveView(whitelisted, interaction.guild, interaction),
             ephemeral=True,
         )
+
+
+# ----------------------------------------------------------------- Info-Panel
+
+
+def ensure_deaths_objective():
+    """Legt das Scoreboard an, das Todesfälle mitzählt. Existiert es schon, tut das nichts."""
+    try:
+        rcon_command("scoreboard objectives add deaths deathCount")
+    except Exception:
+        traceback.print_exc()
+
+
+def _first_number(text):
+    match = re.search(r"-?\d+(?:\.\d+)?", text or "")
+    return float(match.group()) if match else None
+
+
+def collect_server_info():
+    """Holt Live-Daten vom Server. Gibt None zurück, wenn er nicht erreichbar ist."""
+    names = list(load_whitelisted().values())
+    commands_ = ["list", "tps"] + [f"scoreboard players get {n} deaths" for n in names]
+
+    try:
+        responses = rcon_many(commands_)
+    except Exception:
+        traceback.print_exc()
+        return None
+
+    list_response = responses[0] or ""
+    players = []
+    if ":" in list_response:
+        players = [p.strip() for p in list_response.split(":", 1)[1].split(",") if p.strip()]
+
+    numbers = re.findall(r"\d+", list_response)
+    maximum = numbers[1] if len(numbers) > 1 else "?"
+
+    tps = _first_number(responses[1])
+
+    deaths = 0
+    for response in responses[2:]:
+        value = _first_number(response)
+        if value is not None:
+            deaths += int(value)
+
+    return {"players": players, "max": maximum, "tps": tps, "deaths": deaths}
+
+
+def build_info_embed(guild=None):
+    info = collect_server_info()
+    state = load_dimensions()
+    whitelisted = load_whitelisted()
+
+    embed = discord.Embed(
+        title="ѕᴇʀᴠᴇʀ",
+        description="🟢 **online**" if info else "🔴 **offline**",
+        color=0x9D4EDD if info else 0x5A189A,
+    )
+    if guild and guild.icon:
+        embed.set_thumbnail(url=guild.icon.url)
+
+    if info:
+        embed.add_field(
+            name="ѕᴘɪᴇʟᴇʀ",
+            value=f"**{len(info['players'])}** / {info['max']}"
+            + ("\n" + ", ".join(info["players"]) if info["players"] else ""),
+            inline=True,
+        )
+        embed.add_field(name="ᴡʜɪᴛᴇʟɪѕᴛ", value=f"**{len(whitelisted)}**", inline=True)
+        embed.add_field(name="ᴛᴏᴅᴇ", value=f"**{info['deaths']}**", inline=True)
+        if info["tps"] is not None:
+            embed.add_field(name="ᴛᴘѕ", value=f"**{info['tps']:.1f}**", inline=True)
+
+    embed.add_field(
+        name="ᴅɪᴍᴇɴѕɪᴏɴᴇɴ",
+        value="  ".join(
+            f"{'🟢' if state[key] else '🔴'} {meta['label']}"
+            for key, meta in DIMENSIONS.items()
+        ),
+        inline=False,
+    )
+
+    embed.set_footer(text=f"{RCON_HOST}:25565")
+    embed.timestamp = discord.utils.utcnow()
+    return embed
+
+
+async def update_info_panel():
+    if not INFO_CHANNEL_ID:
+        return
+
+    channel = bot.get_channel(INFO_CHANNEL_ID)
+    if channel is None:
+        print(f"Info-Kanal {INFO_CHANNEL_ID} nicht gefunden")
+        return
+
+    message = await fetch_tracked_message(channel, INFO_STATE_FILE)
+    embed = build_info_embed(channel.guild)
+    try:
+        if message:
+            await message.edit(embed=embed)
+        else:
+            message = await channel.send(embed=embed)
+            save_tracked_message(INFO_STATE_FILE, channel, message)
+    except Exception:
+        traceback.print_exc()
+
+
+@tasks.loop(seconds=60)
+async def info_refresher():
+    await update_info_panel()
+
+
+@info_refresher.before_loop
+async def _wait_for_bot():
+    await bot.wait_until_ready()
 
 
 # --------------------------------------------------------------- Admin-Panel
@@ -740,8 +872,12 @@ async def on_ready():
     print(f"🔮 Bot ist online als {bot.user}")
 
     await update_whitelist_panel()
+    ensure_deaths_objective()
     await update_whitelist_panel()
     await update_panel_message()
+    await update_info_panel()
+    if not info_refresher.is_running():
+        info_refresher.start()
 
 
 @bot.event
