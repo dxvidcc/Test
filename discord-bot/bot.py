@@ -743,23 +743,15 @@ class WhitelistButton(discord.ui.View):
         await interaction.response.send_modal(WhitelistModal())
 
 
-def build_instructions_embed():
+def build_instructions_embed(guild=None):
     embed = discord.Embed(
-        title="🔮 Whitelist",
-        description="Um dem Minecraft Server beizutreten, whiteliste dich einmalig über den Button unten.",
-        color=0x9B59B6,
+        title="ᴡʜɪᴛᴇʟɪѕᴛ",
+        description="Klicke unten und gib deinen **exakten** Minecraft-Namen ein.",
+        color=0x9D4EDD,
     )
-    embed.add_field(
-        name="Anleitung",
-        value=(
-            "1. Klicke auf den **Whitelisten** Button\n"
-            "2. Gib deinen **exakten** Minecraft-Benutzernamen ein\n"
-            "3. Du wirst automatisch gewhitelistet und bekommst die Rolle\n"
-            "4. Vertippt? Entferne deinen Eintrag in der Spielerliste und trage dich neu ein"
-        ),
-        inline=False,
-    )
-    embed.set_footer(text="🔮 | Bei Problemen wende dich an einen Admin")
+    if guild and guild.icon:
+        embed.set_thumbnail(url=guild.icon.url)
+    embed.set_footer(text=f"{RCON_HOST}:25565")
     return embed
 
 
@@ -771,7 +763,7 @@ async def ensure_instructions():
         return
 
     message = await fetch_tracked_message(channel, INSTRUCTIONS_STATE_FILE)
-    embed = build_instructions_embed()
+    embed = build_instructions_embed(channel.guild)
     try:
         if message:
             await message.edit(embed=embed, view=WhitelistButton())
