@@ -198,6 +198,7 @@ class AdminRemoveSelect(discord.ui.Select):
                 failed.append(uid)
 
         await update_whitelist_panel()
+        await update_info_panel()
 
         parts = []
         if removed:
@@ -273,6 +274,7 @@ class MyEntryView(EphemeralPanel):
             return
 
         await update_whitelist_panel()
+        await update_info_panel()
         await close_panel(
             interaction,
             f"✅ **{name}** wurde entfernt.\nDu kannst dich jetzt im Whitelist-Kanal neu eintragen.",
@@ -706,6 +708,7 @@ class AdminPanelView(discord.ui.View):
             )
         )
         await update_panel_message()
+        await update_info_panel()
 
     @discord.ui.button(label="Nether", style=discord.ButtonStyle.secondary, custom_id="panel_toggle_nether")
     async def toggle_nether(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -843,6 +846,7 @@ class WhitelistModal(discord.ui.Modal, title="🔮 Whitelist"):
         await send_admin_log(log)
 
         await update_whitelist_panel()
+        await update_info_panel()
 
 
 def build_whitelist_panel_embed(guild=None):
@@ -897,7 +901,6 @@ async def on_ready():
     await bot.tree.sync()
     print(f"🔮 Bot ist online als {bot.user}")
 
-    await update_whitelist_panel()
     ensure_deaths_objective()
     await update_whitelist_panel()
     await update_panel_message()
@@ -945,6 +948,7 @@ async def whitelist_remove(interaction: discord.Interaction, minecraft_name: str
         return
 
     await update_whitelist_panel()
+    await update_info_panel()
     await close_panel(interaction, f"✅ **{name}** wurde von der Whitelist entfernt.")
 
 
