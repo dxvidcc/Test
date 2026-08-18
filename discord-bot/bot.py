@@ -414,22 +414,14 @@ def build_panel_embed():
     for key, meta in DIMENSIONS.items():
         icon = "🟢" if state[key] else "🔴"
         lines.append(
-            f"{icon} {meta['emoji']} **{meta['label']}** — "
-            f"{'offen' if state[key] else 'gesperrt'}"
+            f"{icon} **{meta['label']}** — {'offen' if state[key] else 'gesperrt'}"
         )
 
-    embed = discord.Embed(
+    return discord.Embed(
         title="🛠️ Admin-Panel",
         description="\n".join(lines),
         color=0x9B59B6,
     )
-    embed.add_field(
-        name="Dimensionen",
-        value="Der Knopf schaltet um — grün heißt offen für alle Spieler.",
-        inline=False,
-    )
-    embed.set_footer(text="Nur für Admins • Zustand bezieht sich auf die Gruppe default")
-    return embed
 
 
 async def update_panel_message():
