@@ -388,11 +388,12 @@ def collect_server_info():
 
     tps = _first_number(responses[1])
 
-    deaths = 0
-    for response in responses[2:]:
+    # Ohne Eintrag im Scoreboard antwortet der Server mit einer Fehlermeldung
+    # statt einer Zahl — dann hatte der Spieler schlicht noch keinen Tod.
+    deaths = {}
+    for name, response in zip(names, responses[2:]):
         value = _first_number(response)
-        if value is not None:
-            deaths += int(value)
+        deaths[name] = int(value) if value is not None else 0
 
     return {"players": players, "max": maximum, "tps": tps, "deaths": deaths}
 
@@ -418,9 +419,16 @@ def build_info_embed(guild=None):
             inline=True,
         )
         embed.add_field(name="ᴡʜɪᴛᴇʟɪѕᴛ", value=f"**{len(whitelisted)}**", inline=True)
-        embed.add_field(name="ᴛᴏᴅᴇ", value=f"**{info['deaths']}**", inline=True)
         if info["tps"] is not None:
             embed.add_field(name="ᴛᴘѕ", value=f"**{info['tps']:.1f}**", inline=True)
+
+        ranking = sorted(info["deaths"].items(), key=lambda item: -item[1])
+        embed.add_field(
+            name=f"ᴛᴏᴅᴇ ({sum(info['deaths'].values())})",
+            value="\n".join(f"{name} — **{count}**" for name, count in ranking)
+            or "_noch niemand gestorben_",
+            inline=False,
+        )
 
     embed.add_field(
         name="ᴅɪᴍᴇɴѕɪᴏɴᴇɴ",
