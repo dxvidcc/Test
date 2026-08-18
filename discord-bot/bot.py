@@ -23,12 +23,25 @@ WHITELIST_LIST_CHANNEL_ID = int(
     os.getenv("WHITELIST_LIST_CHANNEL_ID") or WHITELIST_CHANNEL_ID
 )
 
+# Kanal für das Admin-Panel. Ohne eigenen Eintrag landet es im Admin-Log-Kanal.
+ADMIN_PANEL_CHANNEL_ID = int(
+    os.getenv("ADMIN_PANEL_CHANNEL_ID") or ADMIN_LOG_CHANNEL_ID
+)
+
 # TEST_MODE=true → RCON wird übersprungen, alles andere funktioniert normal
 TEST_MODE = os.getenv("TEST_MODE", "false").lower() == "true"
 
 WHITELIST_FILE = "whitelisted.json"
 LIST_STATE_FILE = "list_message.json"
 INSTRUCTIONS_STATE_FILE = "instructions_message.json"
+PANEL_STATE_FILE = "panel_message.json"
+DIMENSIONS_FILE = "dimensions.json"
+
+# Dimensionen, die das Panel schalten kann — Schlüssel muss zur Permission passen.
+DIMENSIONS = {
+    "nether": {"label": "Nether", "emoji": "🔥"},
+    "end": {"label": "End", "emoji": "🌌"},
+}
 
 intents = discord.Intents.default()
 intents.members = True
@@ -364,6 +377,266 @@ class ListView(discord.ui.View):
         )
 
 
+# --------------------------------------------------------------- Admin-Panel
+
+
+def load_dimensions():
+    """Gemerkter Zustand der Dimensionen. Standard: alles gesperrt."""
+    stored = _load_json(DIMENSIONS_FILE, {})
+    return {key: bool(stored.get(key, False)) for key in DIMENSIONS}
+
+
+def set_dimension(key, unlocked):
+    """Schaltet eine Dimension für die Gruppe `default` frei oder sperrt sie."""
+    node = f"dimensionaccess.access.{key}"
+    if unlocked:
+        rcon_command(f"lp group default permission set {node} true")
+    else:
+        rcon_command(f"lp group default permission unset {node}")
+
+    state = load_dimensions()
+    state[key] = unlocked
+    _save_json(DIMENSIONS_FILE, state)
+
+
+def get_online_players():
+    """Namen der aktuell verbundenen Spieler, aus der Antwort von `list`."""
+    response = rcon_command("list") or ""
+    if ":" not in response:
+        return []
+    names = response.split(":", 1)[1]
+    return [name.strip() for name in names.split(",") if name.strip()]
+
+
+def build_panel_embed():
+    state = load_dimensions()
+    lines = []
+    for key, meta in DIMENSIONS.items():
+        icon = "🟢" if state[key] else "🔴"
+        lines.append(
+            f"{icon} {meta['emoji']} **{meta['label']}** — "
+            f"{'offen' if state[key] else 'gesperrt'}"
+        )
+
+    embed = discord.Embed(
+        title="🛠️ Admin-Panel",
+        description="\n".join(lines),
+        color=0x9B59B6,
+    )
+    embed.add_field(
+        name="Dimensionen",
+        value="Der Knopf schaltet um — grün heißt offen für alle Spieler.",
+        inline=False,
+    )
+    embed.set_footer(text="Nur für Admins • Zustand bezieht sich auf die Gruppe default")
+    return embed
+
+
+async def update_panel_message():
+    channel = bot.get_channel(ADMIN_PANEL_CHANNEL_ID)
+    if channel is None:
+        print(f"Admin-Panel-Kanal {ADMIN_PANEL_CHANNEL_ID} nicht gefunden")
+        return
+
+    message = await fetch_tracked_message(channel, PANEL_STATE_FILE)
+    embed = build_panel_embed()
+    try:
+        if message:
+            await message.edit(embed=embed, view=AdminPanelView())
+        else:
+            message = await channel.send(embed=embed, view=AdminPanelView())
+            save_tracked_message(PANEL_STATE_FILE, channel, message)
+    except Exception:
+        traceback.print_exc()
+
+
+async def deny_non_admin(interaction):
+    """True wenn abgelehnt wurde — dann ist die Interaktion bereits beantwortet."""
+    if interaction.user.guild_permissions.administrator:
+        return False
+    await interaction.response.send_message(
+        "❌ Das Admin-Panel ist nur für Admins.", ephemeral=True
+    )
+    schedule_delete(interaction)
+    return True
+
+
+class KickSelect(discord.ui.Select):
+    def __init__(self, players):
+        super().__init__(
+            placeholder="Spieler auswählen…",
+            options=[discord.SelectOption(label=name) for name in players[:25]],
+            min_values=1,
+            max_values=min(len(players), 25),
+        )
+
+    async def callback(self, interaction: discord.Interaction):
+        await interaction.response.defer()
+        kicked, failed = [], []
+        for name in self.values:
+            try:
+                rcon_command(f"kick {name} Vom Server entfernt")
+                kicked.append(name)
+            except Exception:
+                traceback.print_exc()
+                failed.append(name)
+
+        if kicked:
+            await send_admin_log(
+                discord.Embed(
+                    description=f"👢 {interaction.user.mention} hat gekickt: "
+                    + ", ".join(f"**{n}**" for n in kicked),
+                    color=0xE67E22,
+                )
+            )
+
+        parts = []
+        if kicked:
+            parts.append("✅ Gekickt: " + ", ".join(f"**{n}**" for n in kicked))
+        if failed:
+            parts.append("❌ Fehlgeschlagen: " + ", ".join(failed))
+        await close_panel(interaction, "\n".join(parts) or "Nichts geändert.")
+
+
+class KickView(EphemeralPanel):
+    def __init__(self, players, origin):
+        super().__init__(origin)
+        self.add_item(KickSelect(players))
+
+
+class BanModal(discord.ui.Modal, title="🔨 Spieler bannen"):
+    player = discord.ui.TextInput(label="Minecraft Name", max_length=16)
+    reason = discord.ui.TextInput(
+        label="Grund",
+        required=False,
+        placeholder="optional",
+        max_length=100,
+    )
+
+    async def on_submit(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True, thinking=True)
+        name = self.player.value.strip()
+        reason = self.reason.value.strip() or "Gebannt"
+        try:
+            rcon_command(f"ban {name} {reason}")
+        except Exception:
+            traceback.print_exc()
+            await close_panel(
+                interaction, "❌ Fehler beim Verbinden mit dem Server."
+            )
+            return
+
+        await send_admin_log(
+            discord.Embed(
+                description=f"🔨 {interaction.user.mention} hat **{name}** gebannt — {reason}",
+                color=0xE74C3C,
+            )
+        )
+        await close_panel(interaction, f"✅ **{name}** wurde gebannt.")
+
+
+class UnbanModal(discord.ui.Modal, title="♻️ Bann aufheben"):
+    player = discord.ui.TextInput(label="Minecraft Name", max_length=16)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True, thinking=True)
+        name = self.player.value.strip()
+        try:
+            rcon_command(f"pardon {name}")
+        except Exception:
+            traceback.print_exc()
+            await close_panel(
+                interaction, "❌ Fehler beim Verbinden mit dem Server."
+            )
+            return
+
+        await send_admin_log(
+            discord.Embed(
+                description=f"♻️ {interaction.user.mention} hat den Bann von **{name}** aufgehoben",
+                color=0x2ECC71,
+            )
+        )
+        await close_panel(interaction, f"✅ Bann von **{name}** aufgehoben.")
+
+
+class AdminPanelView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=None)
+
+    async def toggle(self, interaction, key):
+        if await deny_non_admin(interaction):
+            return
+
+        await interaction.response.defer()
+        unlocked = not load_dimensions()[key]
+        try:
+            set_dimension(key, unlocked)
+        except Exception:
+            traceback.print_exc()
+            await interaction.followup.send(
+                "❌ Fehler beim Verbinden mit dem Server.", ephemeral=True
+            )
+            return
+
+        label = DIMENSIONS[key]["label"]
+        await send_admin_log(
+            discord.Embed(
+                description=f"{'🟢' if unlocked else '🔴'} {interaction.user.mention} hat "
+                f"**{label}** {'geöffnet' if unlocked else 'gesperrt'}",
+                color=0x2ECC71 if unlocked else 0xE74C3C,
+            )
+        )
+        await update_panel_message()
+
+    @discord.ui.button(label="Nether", emoji="🔥", style=discord.ButtonStyle.secondary, custom_id="panel_toggle_nether")
+    async def toggle_nether(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self.toggle(interaction, "nether")
+
+    @discord.ui.button(label="End", emoji="🌌", style=discord.ButtonStyle.secondary, custom_id="panel_toggle_end")
+    async def toggle_end(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self.toggle(interaction, "end")
+
+    @discord.ui.button(label="Kicken", emoji="👢", style=discord.ButtonStyle.primary, custom_id="panel_kick")
+    async def kick(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if await deny_non_admin(interaction):
+            return
+
+        try:
+            players = get_online_players()
+        except Exception:
+            traceback.print_exc()
+            await interaction.response.send_message(
+                "❌ Fehler beim Verbinden mit dem Server.", ephemeral=True
+            )
+            schedule_delete(interaction)
+            return
+
+        if not players:
+            await interaction.response.send_message(
+                "Gerade ist niemand online.", ephemeral=True
+            )
+            schedule_delete(interaction)
+            return
+
+        await interaction.response.send_message(
+            "Wen möchtest du kicken?",
+            view=KickView(players, interaction),
+            ephemeral=True,
+        )
+
+    @discord.ui.button(label="Bannen", emoji="🔨", style=discord.ButtonStyle.danger, custom_id="panel_ban")
+    async def ban(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if await deny_non_admin(interaction):
+            return
+        await interaction.response.send_modal(BanModal())
+
+    @discord.ui.button(label="Entbannen", emoji="♻️", style=discord.ButtonStyle.success, custom_id="panel_unban")
+    async def unban(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if await deny_non_admin(interaction):
+            return
+        await interaction.response.send_modal(UnbanModal())
+
+
 # ------------------------------------------------------------------ Eintragen
 
 
@@ -515,11 +788,13 @@ async def ensure_instructions():
 async def on_ready():
     bot.add_view(WhitelistButton())
     bot.add_view(ListView())
+    bot.add_view(AdminPanelView())
     await bot.tree.sync()
     print(f"🔮 Bot ist online als {bot.user}")
 
     await ensure_instructions()
     await update_list_message()
+    await update_panel_message()
 
 
 @bot.event
@@ -527,7 +802,11 @@ async def on_message(message):
     if message.author.bot:
         return
 
-    if message.channel.id in (WHITELIST_CHANNEL_ID, WHITELIST_LIST_CHANNEL_ID):
+    if message.channel.id in (
+        WHITELIST_CHANNEL_ID,
+        WHITELIST_LIST_CHANNEL_ID,
+        ADMIN_PANEL_CHANNEL_ID,
+    ) and message.channel.id != ADMIN_LOG_CHANNEL_ID:
         await message.delete()
         return
 
