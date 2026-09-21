@@ -642,7 +642,7 @@ Drei Vorratsbehälter am selben Gerät, bedient über dasselbe Panel:
 |---|---|---|
 | B1 | Epoxidharz | flüssig, zäh (Richtwert 700 – 1500 mPa·s bei 20 °C) |
 | B2 | Härter | flüssig, dünner (Richtwert 50 – 500 mPa·s) |
-| B3 | Verdicker (pyrogene Kieselsäure, alternativ Glass Bubbles) | Pulver, sehr leicht |
+| B3 | Verdicker (pyrogene Kieselsäure, alternativ Glass Bubbles) | **Pulver**, sehr leicht (Schüttdichte ca. 0,05 – 0,1 g/cm³) — Schnecke statt Ventil, siehe N6 |
 
 Bedienablauf: Einwegbecher einsetzen → am Panel Menge wählen (z. B. 40 g) und
 Konsistenz (dünnflüssig / Gel / Paste) → Start. Das Gerät dosiert Harz und
@@ -787,6 +787,49 @@ Brückenbildung und lädt sich elektrostatisch auf. Sie fließt nicht.
   Schnecke zuverlässig. Sie bleiben aus dem Automaten heraus und werden von Hand
   zugegeben; das ist eine bewusste Abgrenzung, keine offene Baustelle.
 
+### N6.1 Was "Pulver" konkret bedeutet: Volumen statt Masse
+
+Die Mengen klingen nach nichts — 2 oder 3 Gramm — aber pyrogene Kieselsäure ist
+so leicht, dass die Masse die falsche Größe zum Nachdenken ist. Überschlag für
+einen 40-g-Ansatz mit Pastenkonsistenz:
+
+| Größe | Wert |
+|---|---|
+| Harz + Härter, 40 g bei ca. 1,1 g/cm³ | ca. 36 ml |
+| Kieselsäure 3 g bei Schüttdichte ca. 0,05 g/cm³ | **ca. 60 ml** |
+| Glass Bubbles 8 g bei Schüttdichte ca. 0,1 g/cm³ | **ca. 80 ml** |
+
+**Das Pulver hat mehr Volumen als die Flüssigkeit, in die es hinein soll.**
+Daraus folgen vier Festlegungen, die sonst erst am Prototyp auffallen:
+
+1. **Bechergröße nach dem Schüttzustand wählen, nicht nach dem Endzustand.**
+   Kieselsäure fällt beim Benetzen praktisch vollständig in sich zusammen (echte
+   Dichte ca. 2,2 g/cm³, der Rest ist Luft) — der Ansatz hat am Ende wieder
+   ca. 38 ml. Aber dazwischen türmt sich das Pulver auf. Für 40 g Ansatz daher
+   **Becher ab 200 ml**, bei Glass Bubbles (die als Hohlkugeln erhalten bleiben
+   und das Volumen dauerhaft vergrößern) ab 250 ml.
+2. **Zugabe zwingend portionsweise in den laufenden Rührer.** Nicht nur wegen
+   der Klumpen: die Schüttung passt gar nicht auf einmal in den Becher. Das
+   Einrieseln über 30 – 60 s ist keine Vorsichtsmaßnahme, sondern
+   Volumenbedingung.
+3. **Schneckenauslegung folgt daraus direkt.** Eine Schnecke Ø 12 mm mit 10 mm
+   Steigung fördert je Umdrehung ca. 0,8 ml geometrisch, realistisch bei halber
+   Füllung ca. 0,4 ml. Für 60 ml sind das rund 150 Umdrehungen — bei 120 min⁻¹
+   etwa 75 s. Das passt genau zur geforderten Einrieselzeit: **die langsame
+   Schnecke ist hier keine Schwäche, sondern die gewünschte Betriebsart.** Eine
+   schnelle Schnecke müsste künstlich gedrosselt werden.
+4. **Statik ernst nehmen.** Feines Pulver lädt sich beim Fördern auf und bleibt
+   an Becherwand, Düse und allem in Reichweite kleben — Material, das an der
+   Wand oberhalb des Harzspiegels hängt, ist dosiert, aber nicht im Ansatz, und
+   verfälscht das Rezept. Gegenmaßnahmen: Auslaufrohr aus geerdetem Edelstahl,
+   Fallstrecke unter 30 mm, Auslauf dicht über dem Harzspiegel statt am
+   Becherrand, und das Paddel so geformt, dass es die Wand oberhalb des Spiegels
+   mit erfasst.
+
+Die Waage ist von all dem unbeeindruckt — sie wiegt die 3 g so genau wie 30 g.
+Die Auflösung ist also **nicht** die Herausforderung bei der Pulverdosierung;
+Förderstetigkeit und Statik sind es.
+
 ## N7. Rührwerk
 
 **Zentrale Entscheidung: Becher und Rührpaddel sind Einwegteile.** Damit
@@ -859,6 +902,7 @@ Geräte sonst scheitern.
 | W4 Temperaturgang | Ansätze bei 15 °C und 30 °C | gleiche Genauigkeit, nur andere Dauer |
 | W5 Mischgüte | Ansatz aushärten, aufschneiden | keine weichen Zonen, keine Schlieren an Wand und Boden |
 | W6 Verdicker | Konsistenzstufen Gel und Paste | keine Klumpen, reproduzierbare Konsistenz |
+| W6b Pulverförderung | 20 Dosierungen à 3 g | Streuung < 5 %, kein Abriss durch Brückenbildung, Becher fasst die Schüttung |
 | W7 Aushärtung | Shore-Härte nach 24 h gegen Handansatz | kein messbarer Unterschied |
 | W8 Dauerstand | 50 Ansätze ohne Reinigung | keine Düsenverstopfung, kein Tropfverlust |
 
