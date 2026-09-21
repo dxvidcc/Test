@@ -4,10 +4,17 @@ Ausgabeautomat für Schrauben, Muttern und Unterlegscheiben. Bedienung über ein
 Panel ("7x M3x10"), Ausgabe stückgenau in eine Schale, wie der Münzauswurf an
 einer Supermarktkasse.
 
+Das Gerät besteht aus zwei mechanisch getrennten Modulen an einem gemeinsamen
+Panel:
+
+- **Teil I — Trockenmodul**: Schrauben, Muttern, Scheiben (Abschnitte 1–16)
+- **Teil II — Nassmodul**: 2K-Epoxid mit Verdicker, dosiert und gerührt in einen
+  Mischbecher (Abschnitte N1–N12)
+
 Dieses Dokument behandelt **ausschließlich die Mechanik**: Bevorratung,
-Vereinzelung, Auswurf, Zählung und Fertigung. Steuerungsplattform (ESP32 / Pi /
-Arduino) ist bewusst offen gelassen; alle Schnittstellen sind so beschrieben,
-dass jede Plattform sie bedienen kann.
+Vereinzelung, Dosierung, Auswurf, Zählung und Fertigung. Steuerungsplattform
+(ESP32 / Pi / Arduino) ist bewusst offen gelassen; alle Schnittstellen sind so
+beschrieben, dass jede Plattform sie bedienen kann.
 
 ---
 
@@ -29,17 +36,27 @@ dass jede Plattform sie bedienen kann.
 - **Zählen nur nach Hüben ist nicht zulässig.** Jeder Auswurf wird im Fallschacht
   einzeln verifiziert (induktiver Sensor oder Lichtschranke). Fehlt ein Teil,
   schiebt die Steuerung nach; nach N Fehlversuchen: Abbruch mit Störmeldung.
-- **Kritischer Grenzfall M1**: unterhalb M2 ist die Hängeschiene nicht mehr
-  zuverlässig. Für M1/M1.6 siehe Anhang B — dort wird ein Lochscheiben-Magazin
-  mit Gewichtsverifikation empfohlen.
+- **Befüllen aus der Tüte, nicht von Hand orientiert.** Ein Schüttguttrichter
+  mit **Hubschieber** über der Hängeschiene orientiert die Schrauben selbst
+  (Abschnitt 4.3): hineinkippen, der Schieber fischt sie hängend heraus, falsch
+  liegende Teile fallen zurück und werden erneut angeboten. Das ist die
+  eigentliche Antwort auf den Betriebsaufwand.
+- **Zweites Modul: 2K-Epoxid** (Teil II). Harz, Härter und Verdicker werden
+  **nach Gewicht** in einen Einweg-Mischbecher dosiert und automatisch gerührt.
+  Dasselbe Grundprinzip wie beim Zählen: gemessen wird das Ergebnis, nicht die
+  Ansteuerung.
+- **Untergrenze M2.** M1/M1.6 sind bewusst nicht im Sortiment — die
+  Schlitztoleranzen wären im Druck nicht beherrschbar.
 
 ---
+
+# Teil I — Trockenmodul
 
 ## 1. Anforderungen
 
 | # | Anforderung | Zielwert |
 |---|---|---|
-| A1 | Teilespektrum Schrauben | M1 – M8, Länge 4 – 40 mm, Zylinder-/Linsen-/Senkkopf |
+| A1 | Teilespektrum Schrauben | M2 – M8, Länge 4 – 40 mm, Zylinder-/Linsen-/Senkkopf |
 | A2 | Teilespektrum Muttern | M2 – M8, ISO 4032 / 4033, Stoppmuttern optional |
 | A3 | Teilespektrum Scheiben | M2 – M8, ISO 7089/7090, Federringe als Sonderfall |
 | A4 | Stückgenauigkeit | 100 % — die ausgegebene Menge muss der bestellten entsprechen |
@@ -49,9 +66,12 @@ dass jede Plattform sie bedienen kann.
 | A8 | Nachfüllen | im laufenden Betrieb, ohne Werkzeug, ohne Demontage |
 | A9 | Fehlerrate | < 1 Blockade pro 1000 Ausgaben, kein stiller Fehlauswurf |
 | A10 | Geräusch | kein metallisches Prellen im Ausgabeschacht |
+| A11 | Nachfüllen Schrauben | unorientiert aus der Vorratstüte, ohne Einzelteil-Handhabung |
+| A12 | Epoxid-Ansatz (Teil II) | 15 – 150 g, Mischungsverhältnis-Fehler < 2 % der Härtermasse |
 
-**Abgrenzung:** kein Schüttgut-Handling im Gerät (siehe Abschnitt 4.3), keine
-Gemischtausgabe mehrerer Sorten in einem Vorgang in der ersten Ausbaustufe.
+**Abgrenzung:** keine Gemischtausgabe mehrerer Sorten in einem Vorgang in der
+ersten Ausbaustufe; keine Federringe ohne Auffädeldorn; keine Faserfüllstoffe im
+Nassmodul (Abschnitt N6).
 
 ---
 
@@ -177,24 +197,108 @@ identisch — das ist die Voraussetzung für eine sichere Vereinzelung.
   Auflagekante mit 90°-Fase, damit der Kopf definiert aufsitzt statt sich zu
   verkeilen.
 
-### 4.3 Klasse C — Schüttgut (bewusst zurückgestellt)
+### 4.3 Befüllen: das Orientierungsproblem und seine Lösung
 
-Ein Trichter mit Wendelrad oder Rüttler wäre bedienfreundlicher (Schrauben aus
-der Tüte hineinkippen), erkauft das aber mit Rückführung, Lagenerkennung und
-deutlich höherer Komplexität — praktisch ein Miniatur-Wendelförderer pro Fach.
+Die Hängeschiene erzwingt eine definierte Lage — das ist ihre Stärke bei der
+Ausgabe und ihre Schwäche beim Befüllen. Naiv müsste jede Schraube von Hand
+eingehängt werden; bei 150 Teilen pro Kartusche ist das der Grund, aus dem so
+ein Gerät am Ende ungenutzt in der Ecke steht.
 
-**Konsequenz für den Betrieb, ehrlich benannt:** Klasse B heißt, dass die
-Schrauben beim Befüllen **orientiert** eingelegt werden müssen. Das ist der
-eigentliche Aufwand im Betrieb, nicht die Ausgabe. Abmilderung:
-- Befüll-Kamm: ein Werkzeug, in das eine Handvoll Schrauben gekippt und
-  gerüttelt wird, bis sie in Schlitzen hängen; der Kamm wird dann an die
-  Kartusche angedockt und die Reihe hinübergeschoben.
-- Eine Kartusche fasst 100 – 200 Teile; bei Heimwerker-/Laborgebrauch ist das
-  Befüllen dann eine Aufgabe pro Quartal, nicht pro Woche.
+**Grundsatz: nicht der Mensch orientiert die Schrauben, sondern die Mechanik.**
+Drei Ausbaustufen, aufsteigend nach Aufwand:
 
-Siehe Abschnitt 16, offene Entscheidung O1.
+#### Stufe 1 — Ladewanne (ein Werkzeug für das ganze Gerät)
 
----
+Eine flache Wanne mit geschlitztem Boden, Neigung ca. 10°. Eine Handvoll
+Schrauben hineinkippen, kurz schütteln oder mit einem 5-€-Vibrationsmotor
+rütteln: die Schrauben fallen in die Schlitze und hängen am Kopf, die restlichen
+rutschen zur Seite. Die Wanne wird an die Kartusche angedockt, der Schlitz
+fluchtet, ein Schieber streift die Reihe hinüber.
+
+- Kosten: ein Druckteil plus Vibrationsmotor, **einmal für alle Kartuschen**.
+- Aufwand: ca. 1 Minute pro Kartuschenfüllung statt ca. 10 Minuten Einzelhandhabung.
+- Keinerlei Änderung an der Kartusche nötig — funktioniert auch nachgerüstet.
+
+#### Stufe 2 — Schüttguttrichter mit Hubschieber (Empfehlung für den Endausbau)
+
+Das Prinzip kommt aus kommerziellen Schraubenzuführungen und ist der eigentliche
+Gewinn: der Trichter sitzt direkt auf der Kartusche, befüllt wird durch simples
+Hineinkippen aus der Vorratstüte.
+
+```
+        ┌──────────────────────┐
+        │  o  o   o  o  o   o  │  ← Schüttgut, unorientiert
+        │    o  o   o  o   o   │
+        │  o   o  ┌─┐ o   o    │
+        │    o  o │▓│  o   o   │   ┌─┐  Hubschieber, Oberkante
+        │  o   o  │▓│o   o     │   │▓│  angeschrägt, mit Schlitz
+        └─────────┤▓├──────────┘   └─┘
+                  │▓│  ▲ Schieber fährt durch die Schüttung nach oben
+                  │▓│  │
+             ═════╪═╪══╪═══  Übergabe oben auf die Hängeschiene
+                  ▼ ▼
+              Schiene (Puffer)  ──►  Escapement  ──►  Fallschacht
+```
+
+Funktion eines Hubes:
+1. Der Schieber fährt durch die Schüttung nach oben. Seine Oberkante ist
+   angeschrägt und trägt denselben Schlitz wie die Schiene.
+2. Schrauben, die zufällig mit dem Schaft in den Schlitz fallen, bleiben hängen.
+   Alle anderen rutschen über die Schräge in den Trichter zurück — **falsch
+   orientierte Teile werden automatisch aussortiert und erneut angeboten.**
+3. Oben fluchtet der Schieberschlitz mit dem Schienenschlitz; die hängenden
+   Schrauben rutschen auf die Schiene.
+
+Ein Hub fördert 0 bis n Teile — das ist unkritisch, weil die Schiene nur noch
+**Puffer** ist. Gezählt wird weiterhin unten am Escapement und im Fallschacht
+(Abschnitt 8). Die Steuerung fährt einfach so lange Hübe, bis der Füllstands-
+sensor der Schiene meldet "voll genug".
+
+**Antrieb ohne zweiten Motor:** Die Kartuschenwelle bekommt zwei Freiläufe
+(Klemmkörper- oder gedruckte Klinkenfreiläufe), die gegenläufig wirken:
+
+| Drehrichtung | wirkt auf | Funktion |
+|---|---|---|
+| vorwärts | Nockenwelle des Escapements | ein Teil ausgeben |
+| rückwärts | Kurbel des Hubschiebers | einen Förderhub fahren |
+
+Damit bleibt die Schnittstelle aus Abschnitt 7 unverändert — ein Motor, eine
+Welle, zwei Drehrichtungen. Das Gerät muss nicht einmal wissen, ob die gesteckte
+Kartusche einen Trichter hat: es dreht rückwärts, wenn die Schiene leer meldet.
+
+Nachteile, klar benannt:
+- Die Kartusche wird deutlich höher (Trichtervolumen) und beansprucht mehr
+  Bauraum in der Matrix.
+- Zwei Freiläufe im Druckteil sind der anspruchsvollste Teil der ganzen Mechanik.
+  Fällt der Nachweis in P2b durch, ist der Rückfall ein kleiner zweiter Motor
+  je Fach — teurer, aber trivial.
+- Bei sehr kurzen Schrauben (L/d < 2) sinkt die Ausbeute je Hub; das kostet nur
+  Zeit, keine Funktion.
+
+#### Stufe 3 — Klasse A: der selbstorientierende Flachschlitz-Trichter
+
+Für Scheiben und Muttern ist das Problem viel kleiner und mit reiner Geometrie
+lösbar: ein Trichter, dessen Auslaufschlitz nur **eine Teiledicke** hoch und so
+breit wie das Teil ist. Eine Scheibe passt dort nur flach hindurch, hochkant
+niemals. Scheiben aus der Tüte einfüllen, kurz rütteln, fertig — die Teile
+ordnen sich beim Durchtritt von selbst.
+
+Muttern brauchen zusätzlich die Verdrehsicherung des Sechskantrohres
+(Abschnitt 4.1) und einen etwas höheren Schlitz; ihr Orientierungsproblem ist
+auf "liegend statt stehend" reduziert und damit ebenfalls geometrisch erledigt.
+
+#### Vergleich
+
+| Verfahren | Aufwand je Füllung | Kosten | Änderung an der Kartusche |
+|---|---|---|---|
+| Von Hand einhängen | ~10 min | 0 € | keine |
+| Ladewanne (Stufe 1) | ~1 min | ~10 € einmalig | keine |
+| Hubschieber-Trichter (Stufe 2) | **~10 s (Tüte auskippen)** | ~5 € je Kartusche | Trichter + 2 Freiläufe |
+| Flachschlitz-Trichter (Stufe 3, Klasse A) | ~15 s | ~2 € je Kartusche | Trichteraufsatz |
+
+**Empfehlung:** Stufe 1 sofort bauen (sie funktioniert ab P0 und kostet fast
+nichts), Stufe 2 in P2b nachweisen und danach für die Vielverbrauchs-Sorten
+(M3, M4) umsetzen. Stufe 3 gehört von Anfang an auf jede Klasse-A-Kartusche.
 
 ## 5. Vereinzelung: Varianten und Bewertung
 
@@ -337,8 +441,8 @@ Sensorvarianten für den Fallschacht:
 **Empfohlene Kombination:** induktiver Sensor je Fach (oder je Sammelrutsche,
 wenn immer nur ein Fach gleichzeitig läuft — das spart erheblich Sensorik) plus
 **eine** Wägezelle unter der Ausgabeschale als Plausibilitätsprüfung über die
-Gesamtausgabe. Bei M1-Teilen ist die Wägezelle nicht Ergänzung, sondern das
-führende Messmittel (Anhang B).
+Gesamtausgabe. Eine hochauflösende Wägezelle braucht Teil II ohnehin
+(Abschnitt N5), die Bauteilauswahl ist damit bereits geklärt.
 
 Der Schachtsensor braucht eine Entprellung in Hardware oder Software: ein
 fallendes Teil kann an der Schachtwand abprallen und zwei Flanken erzeugen.
@@ -355,6 +459,9 @@ Sperrzeit nach einer erkannten Flanke: ca. 50 ms.
 - **Rechnerischer Bestand**: die Steuerung führt den Zählerstand je Kartusche
   mit. Das ist für die Anzeige gut genug, ersetzt aber nie den Leer-Sensor —
   fehlerhafte Zählungen und Handentnahmen driften auseinander.
+- **Nachfüllvorgang**: siehe Abschnitt 4.3 — entweder Kartusche ziehen und an
+  der Ladewanne füllen, oder bei Trichter-Kartuschen direkt aus der Tüte in den
+  Trichter kippen, ohne die Kartusche zu entnehmen.
 - **Kartuschentausch**: Code am Kartuschengriff (Datamatrix oder mechanische
   Kerbcodierung) identifiziert Sorte und Sollfüllung. Steckt eine unerwartete
   Kartusche im Schacht, verweigert die Steuerung die Ausgabe, statt die falsche
@@ -464,6 +571,8 @@ Druckhinweise:
 | F8 | Zählerstand driftet | Handentnahme, Fehlzählung | Leer-/Low-Sensor führt, Zähler ist nur Anzeige |
 | F9 | Kurze Schraube kippt in der Schiene | L/d < 2 | Schiene steiler, Schlitzführung verlängern, Grenzwert dokumentieren |
 | F10 | Motor blockiert dauerhaft | Fremdkörper, Span | Strommessung → Abschaltung, Fach sperren, Meldung |
+| F11 | Hubschieber fördert nichts | Trichter fast leer, Schüttung entmischt | weitere Hübe (max. 10), dann Meldung "nachfüllen"; Trichterwände steiler als der Schüttwinkel |
+| F12 | Schraube fällt bei der Übergabe zurück | Schieberschlitz und Schienenschlitz fluchten nicht | Endanschlag statt Zeitsteuerung, Übergabe mit Überdeckung ausführen |
 
 ---
 
@@ -498,6 +607,7 @@ vervielfältigt werden.
 | **P0** | Eine Klasse-B-Kartusche (M3), Handkurbel, kein Motor, kein Sensor | Beweis, dass das Escapement genau ein Teil freigibt |
 | **P1** | P0 + Getriebemotor + Index + Zählsensor auf Testplatte | Regelkreis aus Abschnitt 8 nachweisen, T1–T6 fahren |
 | **P2** | Zweite Bauform: Klasse-A-Kartusche (M3-Scheiben, M3-Muttern) | Nachweis, dass eine Antriebsschnittstelle beide Klassen bedient |
+| **P2b** | Hubschieber-Trichter auf die M3-Kartusche aufsetzen | Befüllen aus der Tüte statt orientiertes Einlegen (A11) |
 | **P3** | 4er-Modul mit Sammelrutsche und Schale | Layout, Akustik, serielle Ausgabe |
 | **P4** | Vollausbau 24 Fächer, Panel, Bestandsführung | Steuerungsplattform wird hier erstmals relevant |
 
@@ -511,12 +621,265 @@ Problem nur. Erst wenn P0 steht, lohnt sich alles Weitere.
 
 | # | Frage | Auswirkung |
 |---|---|---|
-| O1 | Orientiertes Befüllen (Klasse B) akzeptabel, oder Schüttgut-Trichter nötig? | Bestimmt, ob Klasse C entwickelt werden muss — größter Einzelposten im Projekt |
-| O2 | Sortiment: ist M1 wirklich nötig, oder reicht ab M2? | M1 erzwingt die Sonderlösung aus Anhang B |
+| O1 | Externe Ladewanne (ein Werkzeug fürs ganze Gerät) oder integrierter Hubschieber je Kartusche? | Siehe Vergleich in 4.3 — entscheidet über Kartuschenhöhe und Antriebsaufwand |
+| O2 | Bekommt jede Kartusche einen Trichter, oder nur die Vielverbrauchs-Sorten (M3/M4)? | Mischbestückung ist möglich, da die Antriebsschnittstelle gleich bleibt |
 | O3 | Sind Federringe/Stoppmuttern im Sortiment? | Federringe brauchen Auffädeldorn, Stoppmuttern sind höher als Standardmuttern |
 | O4 | Ein zentraler Zählsensor (serielle Ausgabe) oder einer je Fach? | Kosten gegen Durchsatz; serielle Ausgabe reicht für A5 |
-| O5 | Wägezelle als Pflicht oder Option? | Pflicht, sobald M1/M1.6 im Sortiment sind |
+| O5 | Wägezelle im Trockenmodul Pflicht oder Option? | Option — im Nassmodul dagegen zwingend |
 | O6 | Fachraster und maximale Kartuschenbreite | Legt das Gehäuse fest und ist später teuer zu ändern |
+| O7 | Nassmodul: welches Harzsystem wird fest hinterlegt? | Mischungsverhältnis und Topfzeit sind systemspezifisch und gehören ins Behälterprofil |
+| O8 | Verdicker: nur pyrogene Kieselsäure oder auch Glass Bubbles als zweite Sorte? | Zweite Sorte = zweiter Trichter und zweite Schnecke; Fasern bleiben ausgeschlossen |
+
+---
+
+# Teil II — Nassmodul: 2K-Epoxid mit Verdicker
+
+## N1. Aufgabe
+
+Drei Vorratsbehälter am selben Gerät, bedient über dasselbe Panel:
+
+| Behälter | Inhalt | Aggregatzustand |
+|---|---|---|
+| B1 | Epoxidharz | flüssig, zäh (Richtwert 700 – 1500 mPa·s bei 20 °C) |
+| B2 | Härter | flüssig, dünner (Richtwert 50 – 500 mPa·s) |
+| B3 | Verdicker (pyrogene Kieselsäure, alternativ Glass Bubbles) | Pulver, sehr leicht |
+
+Bedienablauf: Einwegbecher einsetzen → am Panel Menge wählen (z. B. 40 g) und
+Konsistenz (dünnflüssig / Gel / Paste) → Start. Das Gerät dosiert Harz und
+Härter im richtigen Verhältnis, rührt, rieselt den Verdicker ein, rührt erneut
+und meldet die verbleibende Topfzeit.
+
+## N2. Warum das kein Getränkeautomat ist
+
+Fünf Randbedingungen bestimmen die gesamte Konstruktion:
+
+1. **Das Mischungsverhältnis ist nicht verhandelbar.** Epoxid härtet
+   stöchiometrisch; zu viel oder zu wenig Härter ergibt keine "etwas andere"
+   Mischung, sondern eine dauerhaft weiche, klebrige Masse, die nicht
+   nachhärtet. Der Fehler ist irreversibel und am Ergebnis erst nach Stunden
+   sichtbar. Typische Verhältnisse liegen je System zwischen 100:50 und 100:30
+   nach Gewicht — **der Wert kommt aus dem Datenblatt des konkreten Systems,
+   niemals aus einer Tabelle wie dieser.**
+2. **Volumendosierung scheidet damit aus.** Harz und Härter haben
+   unterschiedliche Dichten und stark unterschiedliche Viskositäten, und die
+   Viskosität ändert sich grob um den Faktor 2 je 10 K Temperaturänderung. Eine
+   Steuerung über Pumpenlaufzeit wäre im Winter falsch und im Sommer auch.
+   → **Dosiert wird nach Gewicht, mit Waage im Regelkreis.** Exakt dasselbe
+   Prinzip wie beim Schraubenzählen: gemessen wird das Ergebnis.
+3. **Topfzeit.** Ab dem Moment des Mischens läuft eine Uhr (je System typisch
+   10 – 45 min). Im Gerät darf nie etwas Gemischtes stehen bleiben.
+4. **Aushärtung im Gerät ist ein Totalschaden.** Jedes Bauteil, das Harz *und*
+   Härter sieht, muss ein Wegwerfteil sein. Das ist die zentrale Entwurfsregel
+   des Nassmoduls.
+5. **Chemie.** Aminische Härter sind hautsensibilisierend und ätzend, greifen
+   Kupfer und Messing an und reagieren an Luft mit Feuchtigkeit und CO₂
+   ("Amin-Blush"). Benetzte Teile daher aus PP, PE, PTFE, Silikon oder
+   Edelstahl; Behälter dicht.
+
+## N3. Architektur
+
+```
+     ┌──────┐   ┌──────┐        ┌──────────┐
+     │  B1  │   │  B2  │        │    B3    │  Pulver
+     │ Harz │   │Härter│        │ Verdicker│
+     └───┬──┘   └───┬──┘        └────┬─────┘
+         │          │            ┌───┴───┐
+      ═══╪══      ══╪══          │Schnecke│ + Brückenbrecher
+      Quetsch-    Quetsch-       └───┬───┘
+      ventil      ventil             │
+         │          │                │
+         ▼          ▼                ▼
+        ╲__        __╱          ╲___╱      ← getrennte Düsen, Abrisskante
+          ╲________╱  ╲________╱
+              ╭──────────────╮
+              │ Einwegbecher │ ◄── Rührpaddel (Einwegteil) von oben
+              ╰──────┬───────╯
+              ┌──────┴───────┐
+              │  Wägezelle   │ 0,01 g / 500 g
+              └──────────────┘
+              ┌──────────────┐
+              │ Auffangwanne │ PP, chemikalienfest
+              └──────────────┘
+```
+
+## N4. Dosierung der Flüssigkeiten
+
+| Variante | Viskositätstauglich | Reinigung | Kosten | Bewertung |
+|---|---|---|---|---|
+| **Schwerkraft + Quetschventil** | gut (Bohrung groß wählen) | Schlauch = Wegwerfteil | sehr niedrig | **Empfehlung** |
+| Schlauchpumpe (peristaltisch) | mittel (pulsiert, saugt zäh) | Schlauch = Wegwerfteil | niedrig | Rückfallebene, wenn der Behälter nicht oben stehen kann |
+| Zahnradpumpe | sehr gut | nur mit Lösemittel | hoch | benetzte Lager, Reinigungsproblem |
+| Spritzenpumpe | sehr gut | Spritze = Wegwerfteil | mittel | sehr genau, aber Nachfüllhub und begrenztes Volumen |
+| Druckbehälter + Zeitventil | gut | mittel | mittel | Druckluft nötig, Genauigkeit nur mit Waage |
+
+**Gewählt: Schwerkraft + Quetschventil.** Die Begründung ist die Entwurfsregel
+aus N2.4 — das einzige benetzte Bauteil ist ein Stück Silikonschlauch, und das
+ist ein Cent-Artikel. Epoxid haftet auf Silikon kaum (derselbe Grund, aus dem
+Silikon als Formenmaterial dient); ausgehärtete Reste lassen sich ausdrücken.
+Ein Quetschventil (Servo oder Hubmagnet, der den Schlauch abklemmt) berührt das
+Medium überhaupt nicht.
+
+**Der Schlauchquerschnitt entscheidet über den Durchsatz** — er geht in vierter
+Potenz ein (Hagen-Poiseuille). Überschlag für Harz mit 1000 mPa·s bei 300 mm
+Höhenunterschied und 250 mm Schlauchlänge:
+
+| Schlauch-Innen-Ø | Volumenstrom | 30 g Harz in |
+|---|---|---|
+| 6 mm | ca. 0,4 ml/s | ca. 70 s |
+| 8 mm | ca. 1,3 ml/s | ca. 22 s |
+
+→ **mindestens 8 mm Innendurchmesser**, kurze Wege, Behälter hoch aufstellen.
+Optional die Harzflasche auf 25 – 30 °C temperieren: halbe Viskosität,
+doppelter Durchsatz. Den Härter nicht mitheizen — die Topfzeit sinkt mit der
+Temperatur des Ansatzes.
+
+## N5. Waage und Dosierstrategie
+
+Die Waage ist im Nassmodul kein Zusatzsensor, sondern das führende Messmittel.
+
+1. **Tarieren** mit eingesetztem Becher. Kein Becher erkannt (Gewicht unter
+   Schwelle) → keine Dosierung. Rückstände im Becher → Tara darauf, aber
+   Warnung, dass der Becher nicht leer ist.
+2. **Harz dosieren**, zweistufig: Grobstrom bis kurz vor Ziel, dann Ventil
+   takten (Tropfenmodus).
+3. **Nachlaufkompensation:** Nach dem Schließen läuft der Schlauchinhalt noch
+   nach. Das Gerät schließt deshalb vor dem Zielwert und misst die tatsächliche
+   Nachlaufmasse — dieser Wert wird pro Ansatz nachgeführt (lernender Offset).
+   Ohne diese Kompensation ist der kleine Ansatz (15 g) nicht zu halten.
+4. **Härter auf das tatsächlich ausgegebene Harzgewicht berechnen**, nicht auf
+   den Sollwert. Wurden statt 30,0 g eben 30,7 g Harz dosiert, wird das
+   Verhältnis auf 30,7 g bezogen. **Damit ist eine Überdosierung des Harzes
+   völlig harmlos** — nur das Verhältnis zählt, nicht die Absolutmenge. Das ist
+   der Kniff, der das ganze Modul robust macht.
+5. **Rühren erst danach**, und zwar mit von der Waage entkoppeltem Becher: das
+   Rührwerk erzeugt Kräfte, die jede Messung unbrauchbar machen. Entweder hebt
+   ein kleiner Hub den Becher während des Rührens von der Waage ab, oder das
+   Rührwerk hängt an einem eigenen Rahmen und wird nur zwischen den Wägungen
+   betrieben. **Nicht wiegen und rühren gleichzeitig.**
+
+**Mindestansatz 15 g.** Darunter dominiert der Nachlauf die Genauigkeit; A12
+(< 2 % Verhältnisfehler) wäre nicht mehr nachweisbar. Der Mindestansatz gehört
+als harte Grenze in die Steuerung.
+
+## N6. Verdicker (Pulver)
+
+Pyrogene Kieselsäure ist mechanisch der unangenehmste Stoff im ganzen Gerät:
+Schüttdichte in der Größenordnung von 50 g/l, extrem fein, neigt zu
+Brückenbildung und lädt sich elektrostatisch auf. Sie fließt nicht.
+
+- **Förderorgan: Dosierschnecke** mit geringer Steigung, darüber ein langsam
+  laufender **Brückenbrecher** (Rührflügel an der Trichterwand). Schwerkraft
+  allein funktioniert hier garantiert nicht.
+- Trichterwände deutlich steiler als der Schüttwinkel, innen glatt; Ecken und
+  Radien vermeiden.
+- **Dosierung ebenfalls nach Gewicht.** Die Zugabemenge liegt bei Kieselsäure in
+  der Größenordnung weniger Gewichtsprozent, bei Glass Bubbles deutlich höher —
+  die Konsistenzstufen am Panel sind hinterlegte Rezepte je Verdickersorte.
+- **Reihenfolge ist Verfahrenstechnik, nicht Geschmackssache:** erst Harz und
+  Härter vollständig mischen, dann den Verdicker **langsam in den laufenden
+  Rührer einrieseln**. Wird der Verdicker vorher zugegeben, lässt sich der
+  Härter nicht mehr sauber einarbeiten, und es entstehen Klumpen.
+- **Staub:** Auslauf tief in den Becher führen, kurze Fallstrecke, kein
+  Luftzug, Trichter dicht mit Trockenmittel-Belüftung. Amorphe Kieselsäure ist
+  kein Quarzstaub, aber feiner Staub hat in der Lunge trotzdem nichts zu suchen
+  — die Pulverstrecke wird eingehaust.
+- **Faserfüllstoffe** (Baumwollflocken, Glasfaserschnitzel) blockieren jede
+  Schnecke zuverlässig. Sie bleiben aus dem Automaten heraus und werden von Hand
+  zugegeben; das ist eine bewusste Abgrenzung, keine offene Baustelle.
+
+## N7. Rührwerk
+
+**Zentrale Entscheidung: Becher und Rührpaddel sind Einwegteile.** Damit
+entfällt die Reinigung vollständig — und mit ihr das Problem, an dem solche
+Geräte sonst scheitern.
+
+- Paddel in einer Federklemme oder einem Bajonett am Antrieb; nach dem Ansatz
+  wird es mit dem Becher zusammen entnommen und entsorgt.
+- Einfachste Bauform: **Becher dreht auf einem Teller, Paddel steht fest und
+  exzentrisch.** Der Antrieb sitzt unten, über dem Becher hängt nur ein
+  passives Teil — das ist mechanisch deutlich einfacher als ein abgesenkter
+  Rührmotor.
+- Drehzahl 200 – 400 min⁻¹. Schneller rühren zieht Luft ein; Blasen im Harz
+  sind ein Qualitätsfehler, kein Schönheitsfehler.
+- Paddelgeometrie mit ca. 1 mm Wandabstand und einem Bodenräumer. Unvermischtes
+  Material an Wand und Boden ist der klassische Fehler beim Handmischen und
+  beim automatischen genauso.
+- Rührprogramm: ca. 60 s Harz + Härter → Verdicker über 30 – 60 s einrieseln →
+  60 – 90 s nachrühren.
+- **Ehrlicher Hinweis fürs Panel:** Kein automatisches Rührwerk erreicht die
+  Sicherheit des Umtopfens in einen zweiten Becher. Für kritische Verklebungen
+  bleibt "kurz von Hand nachmischen und umtopfen" die richtige Empfehlung — das
+  Gerät nimmt das Abwiegen ab, nicht die Verantwortung.
+
+## N8. Düsen, Tropfen, Kreuzkontamination
+
+- **Getrennte Düsen mit Abstand.** Ein einziger Tropfen Härter, der in die
+  Harzdüse gelangt, härtet dort aus und setzt sie dauerhaft zu. Die Härterdüse
+  steht deshalb nie über der Harzdüse oder über dem Harzbehälter.
+- Düsenspitze mit scharfer **Abrisskante**, damit der Tropfen abreißt statt am
+  Werkstoff entlangzukriechen.
+- **Parkposition** mit Silikonkappe oder über einem eigenen Abtropfnapf je Düse.
+- Schlauch und Düse sind definierte Verschleißteile mit Wechselintervall; sie
+  kosten wenige Cent und werden vorsorglich getauscht, nicht bei Störung.
+
+## N9. Sicherheit und Betriebsschutz
+
+- **Becher-Erkennung** über die Waage: ohne Becher keine Dosierung. Kein Becher
+  unter der Düse ist der einzige Fehler, der das Gerät selbst versaut.
+- **Auffangwanne** aus PP unter der gesamten Station, herausnehmbar.
+- **Überfüllschutz**: Zielmasse plus Toleranz überschritten → Ventil zu,
+  Ansatz als "verworfen" markieren statt Härter nachzukippen.
+- **Topfzeit-Anzeige** nach jedem Ansatz, mit Ablaufwarnung.
+- **Zugangssicherung** für das Nassmodul (PIN oder Schlüsselschalter): der
+  Härter ist ätzend, das Trockenmodul darf ruhig für alle offen sein, das
+  Nassmodul nicht.
+- Handschuh-Hinweis am Panel; Behälterwechsel nur als **ganze Flasche mit
+  Adapterdeckel**, nicht durch Umfüllen.
+- Belüfteter Aufstellort, insbesondere während der Pulverdosierung.
+
+## N10. Integration ins Gesamtgerät
+
+- **Mechanisch strikt getrennt** vom Trockenmodul: eigener Rahmenabschnitt,
+  eigene Waage, eigene Ausgabestelle. Keine gemeinsame Sammelrutsche.
+- Der Grund ist banal und teuer: ein Harztropfen in der Schraubenrutsche
+  verklebt Kartuschenausgänge dauerhaft, und Metallspäne im Harzansatz ruinieren
+  die Verklebung.
+- **Gemeinsam bleiben Panel, Rahmen und Stromversorgung** — für den Benutzer ist
+  es ein Gerät, mechanisch sind es zwei.
+- Anordnung: Nassmodul unten (schwere Flaschen tief, kurze Fallwege, Auffangwanne
+  am Boden), Trockenmodul darüber.
+
+## N11. Teststand und Abnahme (Nassmodul)
+
+| Test | Umfang | Kriterium |
+|---|---|---|
+| W1 Dosiergenauigkeit | 20 Ansätze à 30 g | Verhältnisfehler < 2 % der Härtermasse (A12) |
+| W2 Kleinstansatz | 20 Ansätze à 15 g | dito — hier entscheidet die Nachlaufkompensation |
+| W3 Nachlauf | 20 Ventilschließungen | Nachlaufmasse < 0,2 g und reproduzierbar |
+| W4 Temperaturgang | Ansätze bei 15 °C und 30 °C | gleiche Genauigkeit, nur andere Dauer |
+| W5 Mischgüte | Ansatz aushärten, aufschneiden | keine weichen Zonen, keine Schlieren an Wand und Boden |
+| W6 Verdicker | Konsistenzstufen Gel und Paste | keine Klumpen, reproduzierbare Konsistenz |
+| W7 Aushärtung | Shore-Härte nach 24 h gegen Handansatz | kein messbarer Unterschied |
+| W8 Dauerstand | 50 Ansätze ohne Reinigung | keine Düsenverstopfung, kein Tropfverlust |
+
+W5 und W7 sind die eigentlichen Abnahmetests: sie prüfen nicht die Mechanik,
+sondern ob am Ende brauchbares Epoxid herauskommt.
+
+## N12. Roadmap Nassmodul
+
+| Stufe | Inhalt | Ziel |
+|---|---|---|
+| **W0** | Schlauch, Quetschventil, Küchenwaage, Handbetrieb | Durchfluss und Nachlauf real messen (N4/N5) |
+| **W1** | Eine Flüssigkeit, Waage im Regelkreis | Zielmasse ± 0,1 g automatisch treffen |
+| **W2** | Zweite Flüssigkeit, Verhältnisrechnung auf Istmasse | W1/W2-Tests bestehen |
+| **W3** | Rührwerk mit Einwegbecher und -paddel | Mischgüte W5 |
+| **W4** | Verdickerschnecke mit Brückenbrecher | W6 |
+| **W5** | Einhausung, Auffangwanne, Zugangssicherung, Panel-Anbindung | Betriebsreife |
+
+**W0 ist wie P0 bewusst primitiv**: ein Schlauch, eine Klemme und eine
+Küchenwaage beantworten die einzige Frage, an der das Konzept scheitern könnte —
+ob zähes Harz per Schwerkraft schnell genug und reproduzierbar genug fließt.
+Diese Messung kostet einen Nachmittag und entscheidet über den ganzen Rest.
 
 ---
 
@@ -558,30 +921,47 @@ Ableitungsregeln:
 
 ---
 
-## Anhang B — Grenzfall M1 / M1.6
+## Anhang B — Auslegungsdaten Nassmodul
 
-M1 ist im Sortiment der kritischste Fall und sollte separat entschieden werden
-(O2). Die Zahlen erklären, warum:
+> Alle Stoffwerte sind **Richtwerte zur Auslegung**. Mischungsverhältnis,
+> Topfzeit und Verarbeitungstemperatur des konkret verwendeten Systems stehen im
+> technischen Datenblatt des Herstellers und nirgends sonst. Sie gehören als
+> Behälterprofil in die Steuerung und werden beim Flaschenwechsel mitgetauscht.
 
-- Kopfdurchmesser ca. 2 mm, Schaft 1 mm, Masse einer M1x4 unter 0,05 g.
-- Ein Schlitz von 1,4 mm mit 0,2 mm Fertigungstoleranz hat 14 % Maßabweichung —
-  im FDM-Druck ist das nicht sicher beherrschbar. Die Hängeschiene aus Abschnitt
-  4.2 verliert hier ihre Zuverlässigkeit.
-- Das Teil ist so leicht, dass Reibung und statische Aufladung die Schwerkraft
-  überwiegen können: es rutscht nicht zuverlässig nach.
-- Ein induktiver Sensor erkennt die Masse im Fallschacht nur noch grenzwertig.
+**Stoffwerte (Größenordnungen, 20 °C)**
 
-Empfehlung für M1/M1.6, falls im Sortiment:
-1. **Lochscheiben-Magazin statt Hängeschiene**: eine Scheibe mit Bohrungen
-   (Ø Schaft + 0,3 mm), in denen die Schrauben hängen wie in einem Setzkasten,
-   wird schrittweise über die Auswurföffnung gedreht. Die Geometrie ist eine
-   Bohrung statt eines Schlitzes — Bohrungen sind im Druck (oder gebohrt in
-   Acryl) deutlich maßhaltiger als schmale Schlitze.
-2. **Fertigung dieser Kartusche nicht im FDM-Druck**, sondern aus Acryl gebohrt
-   oder als SLS-Teil.
-3. **Wägezelle als führendes Zählmittel**: 7 Stück à 0,05 g = 0,35 g; eine
-   Wägezelle mit 0,01-g-Auflösung unterscheidet 6 von 7 Teilen sicher, wo ein
-   Schachtsensor versagt. Die Schale muss dann windgeschützt stehen.
-4. Alternativ, und deutlich billiger: **M1 aus dem Automaten herausnehmen** und
-   als Streifenware im Fach daneben lagern. Das sollte ernsthaft geprüft werden,
-   bevor für eine selten gebrauchte Größe eine Sonderbauform entwickelt wird.
+| Größe | Harz | Härter | Verdicker (pyrogene Kieselsäure) |
+|---|---|---|---|
+| Viskosität | 700 – 1500 mPa·s | 50 – 500 mPa·s | Pulver |
+| Dichte | ca. 1,1 g/cm³ | ca. 0,95 – 1,0 g/cm³ | Schüttdichte ca. 0,05 g/cm³ |
+| Temperaturgang Viskosität | ca. Faktor 2 je 10 K | ca. Faktor 2 je 10 K | — |
+| Werkstoffverträglichkeit | PP, PE, PTFE, Silikon, Edelstahl | dito, **kein Kupfer/Messing** | — |
+
+**Durchflussabschätzung Schwerkraftdosierung** (laminar, Hagen-Poiseuille;
+η = 1 Pa·s, Höhe 300 mm, Schlauchlänge 250 mm, ρ = 1,1 g/cm³):
+
+| Innen-Ø | Volumenstrom | Massenstrom | 30 g in |
+|---|---|---|---|
+| 4 mm | ca. 0,08 ml/s | ca. 0,09 g/s | ca. 5,5 min — unbrauchbar |
+| 6 mm | ca. 0,4 ml/s | ca. 0,45 g/s | ca. 70 s |
+| 8 mm | ca. 1,3 ml/s | ca. 1,4 g/s | ca. 22 s |
+| 10 mm | ca. 3,2 ml/s | ca. 3,5 g/s | ca. 9 s |
+
+Die vierte Potenz des Radius ist hier die ganze Botschaft: von 6 auf 8 mm
+verdreifacht sich der Durchsatz. Umgekehrt macht ein zu dünner Schlauch das
+Konzept unbrauchbar, lange bevor die Genauigkeit ein Thema wird.
+
+**Anforderung an die Wägeauflösung** (Verhältnis 100:50, Grenze A12 = 2 % der
+Härtermasse):
+
+| Ansatz | Harz | Härter | zulässige Abweichung | nötige Auflösung |
+|---|---|---|---|---|
+| 15 g | 10 g | 5 g | ± 0,10 g | 0,01 g |
+| 40 g | 27 g | 13 g | ± 0,27 g | 0,01 – 0,05 g |
+| 150 g | 100 g | 50 g | ± 1,0 g | 0,1 g |
+
+→ Eine Wägezelle mit 0,01 g Auflösung und 500 g Bereich deckt das gesamte
+Spektrum ab. Der **Mindestansatz von 15 g ergibt sich nicht aus der Waage,
+sondern aus dem Nachlauf** (Test W3): solange die Nachlaufmasse unter 0,2 g
+liegt und reproduzierbar ist, trägt die Kompensation aus N5.3 den kleinen
+Ansatz.
