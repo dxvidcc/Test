@@ -19,10 +19,10 @@ per Schwerkraft schnell genug?
 | 1.2 | M3-Schrauben als Testware | 200 Stk | 8 € | Zylinderkopf, eine Länge |
 | 1.3 | Messschieber (digital) | 1 | 15 € | Pflicht — Taschentiefe wird gemessen, nicht geschätzt |
 | 1.4 | Silikonschlauch 8 × 12 mm | 1 m | 6 € | für W0 |
-| 1.5 | Schlauchklemme (Handbetrieb) | 1 | 2 € | Quetschventil von Hand |
+| 1.5 | Schlauchpumpe 12 V (Dosierpumpe, Silikonschlauch) | 1 | 25 € | eine genügt für W0 |
 | 1.6 | Feinwaage 0,01 g / 500 g | 1 | 15 € | später durch Wägezelle ersetzt |
 | 1.7 | Epoxid-Set klein (Harz + Härter) | 300 g | 20 € | Datenblatt mitnehmen! |
-| | **Summe P0 + W0** | | **ca. 85 €** | kein Motor, keine Elektronik |
+| | **Summe P0 + W0** | | **ca. 110 €** | davon 43 € nur für den Schraubentest (1.1 – 1.3) |
 
 ---
 
@@ -78,8 +78,8 @@ dazu zentral einen Zähleingang und einen I²C-Bus für die Wägezellen.
 
 | Pos | Teil | Menge | Richtpreis | Anmerkung |
 |---|---|---|---|---|
-| 5.1 | Servo MG90S + gedruckte Quetschbacke | 2 | 6,00 € | Quetschventil Harz und Härter |
-| 5.2 | Silikonschlauch 8 × 12 mm | 2 m | 12,00 € | Verschleißteil, benetzt |
+| 5.1 | Schlauchpumpe mit Schrittmotor (NEMA 17) + Treiber | 2 | 50,00 € | je eine für Harz und Härter, niemals gemeinsam |
+| 5.2 | Silikonschlauch (Pumpenschlauch + Saug-/Druckleitung) | 2 m | 12,00 € | Verschleißteil mit festem Wechselintervall |
 | 5.3 | Wägezelle 300 g (Einpunkt) + HX711 | 1 | 10,00 € | Mischbecher; siehe Hinweis unten |
 | 5.4 | Schrittmotor 28BYJ-48 + Treiber | 1 | 5,00 € | Dosierschnecke Pulver |
 | 5.5 | Getriebemotor 12 V, ca. 30 min⁻¹ | 1 | 5,00 € | Brückenbrecher im Pulvertrichter |
@@ -90,7 +90,7 @@ dazu zentral einen Zähleingang und einen I²C-Bus für die Wägezellen.
 | 5.10 | Einweg-Mischbecher PP 200 ml | 100 Stk | 12,00 € | ab 250 ml bei Glass Bubbles |
 | 5.11 | Holzspatel als Rührpaddel | 100 Stk | 4,00 € | Einwegteil, wird mit dem Becher entsorgt |
 | 5.12 | Nitrilhandschuhe | 100 Stk | 8,00 € | Härter ist hautsensibilisierend |
-| | **Summe Nassmodul** | | **ca. 90 €** | ohne Verbrauchsmaterial |
+| | **Summe Nassmodul** | | **ca. 135 €** | ohne Verbrauchsmaterial |
 
 **Verbrauchsmaterial (nicht Teil des Geräts):** Epoxidharz + Härter ca. 1 kg
 (30 – 50 €), pyrogene Kieselsäure 250 g (15 – 25 €).
@@ -110,11 +110,12 @@ dazu zentral einen Zähleingang und einen I²C-Bus für die Wägezellen.
 | Fächer | 24 × 11 € | 264 € |
 | Trockenmodul zentral | | 130 € |
 | Steuerung/Panel | mittlere Variante | 70 € |
-| Nassmodul | | 90 € |
+| Nassmodul | | 135 € |
 | Filament gesamt | ca. 2 kg PETG + TPU | 45 € |
-| Reserve 15 % | | 90 € |
-| | **Gesamt** | **ca. 690 €** |
+| Reserve 15 % | | 97 € |
+| | **Gesamt** | **ca. 740 €** |
 
-Der Einstieg kostet davon ca. 85 € (Abschnitt 1). Erst wenn P0 und W0 bestanden
+Der Einstieg kostet davon ca. 110 € (Abschnitt 1), und davon wieder nur 43 €, wenn
+zuerst allein der Schraubenteil geprüft wird. Erst wenn P0 und W0 bestanden
 sind, lohnt die Beschaffung der Positionen 2 bis 5 — vorher ist jede Bestellung
 eine Wette auf eine unbewiesene Mechanik.

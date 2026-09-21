@@ -683,10 +683,12 @@ Fünf Randbedingungen bestimmen die gesamte Konstruktion:
      │  B1  │   │  B2  │        │    B3    │  Pulver
      │ Harz │   │Härter│        │ Verdicker│
      └───┬──┘   └───┬──┘        └────┬─────┘
+      Flutzulauf, Flasche ca. 200 mm
+      über dem Pumpenkopf
          │          │            ┌───┴───┐
-      ═══╪══      ══╪══          │Schnecke│ + Brückenbrecher
-      Quetsch-    Quetsch-       └───┬───┘
-      ventil      ventil             │
+      ══(O)══     ══(O)══         │Schnecke│ + Brückenbrecher
+      Schlauch-   Schlauch-       └───┬───┘
+      pumpe       pumpe              │
          │          │                │
          ▼          ▼                ▼
         ╲__        __╱          ╲___╱      ← getrennte Düsen, Abrisskante
@@ -706,32 +708,78 @@ Fünf Randbedingungen bestimmen die gesamte Konstruktion:
 
 | Variante | Viskositätstauglich | Reinigung | Kosten | Bewertung |
 |---|---|---|---|---|
-| **Schwerkraft + Quetschventil** | gut (Bohrung groß wählen) | Schlauch = Wegwerfteil | sehr niedrig | **Empfehlung** |
-| Schlauchpumpe (peristaltisch) | mittel (pulsiert, saugt zäh) | Schlauch = Wegwerfteil | niedrig | Rückfallebene, wenn der Behälter nicht oben stehen kann |
-| Zahnradpumpe | sehr gut | nur mit Lösemittel | hoch | benetzte Lager, Reinigungsproblem |
-| Spritzenpumpe | sehr gut | Spritze = Wegwerfteil | mittel | sehr genau, aber Nachfüllhub und begrenztes Volumen |
-| Druckbehälter + Zeitventil | gut | mittel | mittel | Druckluft nötig, Genauigkeit nur mit Waage |
+| **Schlauchpumpe (peristaltisch) mit Flutzulauf** | gut | Schlauch = Wegwerfteil | mittel | **Empfehlung** |
+| Schwerkraft + Quetschventil | mäßig | Schlauch = Wegwerfteil | sehr niedrig | einfachste Lösung, aber schwache Betriebseigenschaften (siehe unten) |
+| Zahnradpumpe | sehr gut | nur mit Lösemittel | hoch | benetzte Lager und Dichtungen — mit Epoxid nicht beherrschbar |
+| Spritzenpumpe | sehr gut | Spritze = Wegwerfteil | mittel | sehr genau, aber begrenztes Hubvolumen und ein benetztes Umschaltventil |
+| Membranpumpe | schlecht | mittel | niedrig | Rückschlagventile setzen sich mit zähem Harz zu |
+| Druckbehälter + Zeitventil | gut | mittel | mittel | Druckluft nötig |
 
-**Gewählt: Schwerkraft + Quetschventil.** Die Begründung ist die Entwurfsregel
-aus N2.4 — das einzige benetzte Bauteil ist ein Stück Silikonschlauch, und das
-ist ein Cent-Artikel. Epoxid haftet auf Silikon kaum (derselbe Grund, aus dem
-Silikon als Formenmaterial dient); ausgehärtete Reste lassen sich ausdrücken.
-Ein Quetschventil (Servo oder Hubmagnet, der den Schlauch abklemmt) berührt das
-Medium überhaupt nicht.
+### Warum nicht Schwerkraft
 
-**Der Schlauchquerschnitt entscheidet über den Durchsatz** — er geht in vierter
-Potenz ein (Hagen-Poiseuille). Überschlag für Harz mit 1000 mPa·s bei 300 mm
-Höhenunterschied und 250 mm Schlauchlänge:
+Reine Schwerkraftdosierung ist billig, hat aber vier Eigenschaften, die im
+Betrieb stören:
 
-| Schlauch-Innen-Ø | Volumenstrom | 30 g Harz in |
-|---|---|---|
-| 6 mm | ca. 0,4 ml/s | ca. 70 s |
-| 8 mm | ca. 1,3 ml/s | ca. 22 s |
+1. **Der Druck sinkt, während die Flasche leerläuft.** Die Dosierung bleibt
+   dank Waage zwar richtig, dauert aber am Ende der Flasche deutlich länger —
+   und die letzten Zentimeter fließen kaum noch ab.
+2. **Die Flaschen müssen oben stehen.** Eine 1-kg-Harzflasche über Kopfhöhe zu
+   wechseln ist unangenehm, und jede Undichtigkeit entleert sich per Schwerkraft
+   ins Gerät.
+3. **Zähes Harz ist langsam.** Unter 8 mm Innendurchmesser wird es unbrauchbar
+   (Anhang B).
+4. **Das Abtropfen bleibt ungelöst.** Ein Ventil kann den Schlauchinhalt nicht
+   zurückholen; der Nachlauf lässt sich nur rechnerisch kompensieren.
 
-→ **mindestens 8 mm Innendurchmesser**, kurze Wege, Behälter hoch aufstellen.
-Optional die Harzflasche auf 25 – 30 °C temperieren: halbe Viskosität,
-doppelter Durchsatz. Den Härter nicht mitheizen — die Topfzeit sinkt mit der
-Temperatur des Ansatzes.
+### Gewählt: Schlauchpumpe mit Flutzulauf
+
+Bei einer Schlauchpumpe quetschen Rollen einen Silikonschlauch aus — **das
+Medium berührt ausschließlich den Schlauchinnenraum**. Keine Dichtung, kein
+Lager, kein Laufrad im Harz. Damit bleibt die Entwurfsregel aus N2.4 erfüllt:
+das einzige benetzte Teil ist ein Verschleißteil für wenige Cent.
+
+Vier Vorteile gegenüber dem Ventil:
+
+- **Rückzug statt Nachlaufrechnung.** Nach dem Dosieren läuft die Pumpe ein
+  Stück rückwärts und zieht den hängenden Tropfen in die Düse zurück. Das war
+  bei der Ventillösung der größte Genauigkeitsverlust — er entfällt ersatzlos.
+- **Feindosierung am Ende.** Mit Schrittmotor lässt sich der letzte Rest
+  beliebig langsam fördern, statt ein Ventil zu takten.
+- **Die Flaschen dürfen unten stehen.** Schwer, tief, gut erreichbar — und eine
+  Leckage landet in der Auffangwanne statt im Gerät.
+- **Trockenlauf ist harmlos.** Die Pumpe nimmt keinen Schaden, wenn die Flasche
+  leer ist; die Waage merkt es sofort (keine Massenzunahme trotz Förderung) und
+  bricht ab.
+
+**Der entscheidende Punkt ist der Flutzulauf.** Die bekannte Schwäche von
+Schlauchpumpen bei zähen Medien liegt auf der *Saugseite*: der gequetschte
+Schlauch muss sich zurückformen und dabei zähes Harz nachziehen — das gelingt
+bei hoher Drehzahl nicht. Lösung: die Saugseite bekommt Hilfe von der
+Schwerkraft.
+
+| Maßnahme | Festlegung |
+|---|---|
+| Flasche relativ zum Pumpenkopf | ca. 200 mm höher, Auslass unten |
+| Saugschlauch | Innen-Ø ≥ 8 mm, Länge < 200 mm |
+| Drehzahl | niedrig, ca. 30 – 60 min⁻¹ |
+| Druckseite | Innen-Ø 6 mm genügt, die Pumpe drückt aktiv |
+
+So macht die Schwerkraft das, was sie gut kann (den Schlauch füllen), und die
+Pumpe das, was sie gut kann (genau fördern). Die Flasche steht dafür nicht
+hoch oben, sondern nur wenig über dem Pumpenkopf — beides zusammen passt in
+einen Sockel unterhalb des Geräts.
+
+**Unverändert bleibt:** die Pumpe fördert volumetrisch, und das Volumen hängt
+an Temperatur und Schlauchzustand. **Die Waage bleibt das führende Messmittel**
+(N5). Eine Pumpe ersetzt die Wägung nicht, sie macht sie nur genauer
+ansteuerbar.
+
+Zu beachten:
+- Harz und Härter bekommen **je eine eigene Pumpe**, niemals eine gemeinsame.
+- Der Pumpenschlauch ermüdet an den Quetschstellen und ist ein Verschleißteil
+  mit festem Wechselintervall — er wird vorsorglich getauscht, nicht bei Bruch.
+- Der Pumpenkopf sitzt über der Auffangwanne, damit ein Schlauchbruch nichts
+  Teures trifft.
 
 ## N5. Waage und Dosierstrategie
 
@@ -742,10 +790,11 @@ Die Waage ist im Nassmodul kein Zusatzsensor, sondern das führende Messmittel.
    Warnung, dass der Becher nicht leer ist.
 2. **Harz dosieren**, zweistufig: Grobstrom bis kurz vor Ziel, dann Ventil
    takten (Tropfenmodus).
-3. **Nachlaufkompensation:** Nach dem Schließen läuft der Schlauchinhalt noch
-   nach. Das Gerät schließt deshalb vor dem Zielwert und misst die tatsächliche
-   Nachlaufmasse — dieser Wert wird pro Ansatz nachgeführt (lernender Offset).
-   Ohne diese Kompensation ist der kleine Ansatz (15 g) nicht zu halten.
+3. **Rückzug am Dosierende:** Die Pumpe fördert die letzten Zehntelgramm
+   langsam und läuft danach ein definiertes Stück rückwärts, das den hängenden
+   Tropfen in die Düse zurückzieht. Was trotzdem noch nachläuft, wird gemessen
+   und als lernender Offset vor dem Zielwert berücksichtigt. Erst beides
+   zusammen trägt den kleinen Ansatz von 15 g.
 4. **Härter auf das tatsächlich ausgegebene Harzgewicht berechnen**, nicht auf
    den Sollwert. Wurden statt 30,0 g eben 30,7 g Harz dosiert, wird das
    Verhältnis auf 30,7 g bezogen. **Damit ist eine Überdosierung des Harzes
@@ -913,17 +962,18 @@ sondern ob am Ende brauchbares Epoxid herauskommt.
 
 | Stufe | Inhalt | Ziel |
 |---|---|---|
-| **W0** | Schlauch, Quetschventil, Küchenwaage, Handbetrieb | Durchfluss und Nachlauf real messen (N4/N5) |
+| **W0** | Eine Schlauchpumpe, Silikonschlauch, Küchenwaage | Förderrate, Streuung und Rückzugsverhalten real messen (N4/N5) |
 | **W1** | Eine Flüssigkeit, Waage im Regelkreis | Zielmasse ± 0,1 g automatisch treffen |
 | **W2** | Zweite Flüssigkeit, Verhältnisrechnung auf Istmasse | W1/W2-Tests bestehen |
 | **W3** | Rührwerk mit Einwegbecher und -paddel | Mischgüte W5 |
 | **W4** | Verdickerschnecke mit Brückenbrecher | W6 |
 | **W5** | Einhausung, Auffangwanne, Zugangssicherung, Panel-Anbindung | Betriebsreife |
 
-**W0 ist wie P0 bewusst primitiv**: ein Schlauch, eine Klemme und eine
+**W0 ist wie P0 bewusst primitiv**: eine Pumpe, ein Schlauch und eine
 Küchenwaage beantworten die einzige Frage, an der das Konzept scheitern könnte —
-ob zähes Harz per Schwerkraft schnell genug und reproduzierbar genug fließt.
-Diese Messung kostet einen Nachmittag und entscheidet über den ganzen Rest.
+ob eine Schlauchpumpe zähes Harz reproduzierbar genug fördert und wie viel nach
+dem Rückzug noch nachtropft. Diese Messung kostet einen Nachmittag und
+entscheidet über den ganzen Rest.
 
 ---
 
@@ -981,8 +1031,11 @@ Ableitungsregeln:
 | Temperaturgang Viskosität | ca. Faktor 2 je 10 K | ca. Faktor 2 je 10 K | — |
 | Werkstoffverträglichkeit | PP, PE, PTFE, Silikon, Edelstahl | dito, **kein Kupfer/Messing** | — |
 
-**Durchflussabschätzung Schwerkraftdosierung** (laminar, Hagen-Poiseuille;
-η = 1 Pa·s, Höhe 300 mm, Schlauchlänge 250 mm, ρ = 1,1 g/cm³):
+**Durchflussabschätzung Schwerkraft** (laminar, Hagen-Poiseuille; η = 1 Pa·s,
+Höhe 300 mm, Schlauchlänge 250 mm, ρ = 1,1 g/cm³). Seit der Entscheidung für die
+Schlauchpumpe (N4) dient diese Tabelle nicht mehr der Dosierung, sondern der
+**Auslegung der Saugseite**: so schnell kann sich der Pumpenschlauch im besten
+Fall wieder füllen. Sie ist damit die Obergrenze der Förderrate:
 
 | Innen-Ø | Volumenstrom | Massenstrom | 30 g in |
 |---|---|---|---|
