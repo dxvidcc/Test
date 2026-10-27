@@ -1,14 +1,15 @@
 """Speak the best chess move into a WhatsApp call from Meta glasses.
 
 Pipeline, once a second:
-  1. Screenshot the WhatsApp call window on the Mac (the glasses' camera view).
+  1. Screenshot the WhatsApp call window (the glasses' camera view).
   2. Cheap local check: skip frames that barely changed or are blurry.
   3. Claude reads the board from the frame.
   4. python-chess matches that to a legal move; a move is committed once two
      frames in a row agree.
   5. Game over? Announce it. Otherwise Stockfish picks the reply.
-  6. macOS `say` speaks it into BlackHole, which WhatsApp uses as microphone,
-     so you hear it in the glasses.
+  6. Text-to-speech plays it into a virtual cable (BlackHole on macOS,
+     VB-CABLE on Windows) that WhatsApp uses as microphone, so you hear it in
+     the glasses.
 """
 
 import argparse
@@ -28,6 +29,9 @@ import chess.engine
 from PIL import Image, ImageChops, ImageFilter, ImageStat
 
 MODEL = os.environ.get("CHESSCOACH_MODEL", "claude-opus-5-5")
+WINDOWS = sys.platform == "win32"
+DEFAULT_DEVICE = "CABLE Input" if WINDOWS else "BlackHole 2ch"
+DEFAULT_VOICE = "German" if WINDOWS else "Anna"
 
 PIECE_NAMES = {
     "de": {chess.KING: "König", chess.QUEEN: "Dame", chess.ROOK: "Turm",
@@ -74,8 +78,17 @@ If no full board is visible, set board_visible to false and return an empty list
 
 # --- 1. Screenshot -----------------------------------------------------------
 
-def find_whatsapp_window_id():
-    """CGWindowID of the largest WhatsApp window, or None if Quartz is missing."""
+def find_whatsapp_window():
+    """The largest WhatsApp window, or None.
+
+    macOS: its CGWindowID (needs pyobjc-framework-Quartz).
+    Windows: a pygetwindow window, whose position is re-read on every capture.
+    """
+    if WINDOWS:
+        import pygetwindow
+        found = [w for w in pygetwindow.getWindowsWithTitle("WhatsApp")
+                 if w.visible and not w.isMinimized and w.width > 200]
+        return max(found, key=lambda w: w.width * w.height, default=None)
     try:
         import Quartz
     except ImportError:
@@ -93,16 +106,32 @@ def find_whatsapp_window_id():
     return best
 
 
-def grab_frame(window_id, region):
-    with tempfile.NamedTemporaryFile(suffix=".jpg") as tmp:
-        cmd = ["screencapture", "-x", "-t", "jpg"]
-        if window_id:
-            cmd += ["-o", "-l", str(window_id)]
-        elif region:
-            cmd += ["-R", region]
-        subprocess.run(cmd + [tmp.name], check=True)
-        img = Image.open(tmp.name)
-        img.load()
+def grab_frame(window, region):
+    if WINDOWS:
+        import mss
+        if window:
+            box = {"left": window.left, "top": window.top, "width": window.width, "height": window.height}
+        else:
+            x, y, w, h = (int(v) for v in region.split(","))
+            box = {"left": x, "top": y, "width": w, "height": h}
+        with mss.mss() as screen:
+            shot = screen.grab(box)
+        img = Image.frombytes("RGB", shot.size, shot.rgb)
+    else:
+        # delete=False: Windows can't reopen a NamedTemporaryFile, and macOS shares this path.
+        with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tmp:
+            path = tmp.name
+        try:
+            cmd = ["screencapture", "-x", "-t", "jpg"]
+            if window:
+                cmd += ["-o", "-l", str(window)]
+            elif region:
+                cmd += ["-R", region]
+            subprocess.run(cmd + [path], check=True)
+            img = Image.open(path)
+            img.load()
+        finally:
+            os.unlink(path)
     img = img.convert("RGB")
     img.thumbnail((1280, 1280))
     return img
@@ -232,12 +261,45 @@ def describe_move(board, move, lang):
 
 def speak(text, device, voice):
     print(f"  >> {text}")
+    if WINDOWS:
+        speak_windows(text, device, voice)
+        return
     cmd = ["say"]
     if device:
         cmd += ["-a", device]
     if voice:
         cmd += ["-v", voice]
     subprocess.run(cmd + [text], check=False)
+
+
+def speak_windows(text, device, voice):
+    """Render with the Windows voices (SAPI5), then play on `device` (e.g. VB-CABLE's input)."""
+    import pyttsx3
+    import sounddevice
+    import soundfile
+
+    engine = pyttsx3.init()
+    if voice:
+        match = next((v for v in engine.getProperty("voices")
+                      if voice.lower() in f"{v.name} {v.id}".lower()), None)
+        if match:
+            engine.setProperty("voice", match.id)
+    with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
+        path = tmp.name
+    try:
+        engine.save_to_file(text, path)
+        engine.runAndWait()
+        data, rate = soundfile.read(path)
+        out = None
+        if device:
+            out = next((i for i, d in enumerate(sounddevice.query_devices())
+                        if device.lower() in d["name"].lower() and d["max_output_channels"] > 0), None)
+            if out is None:
+                print(f"  audio device {device!r} not found, using the default speakers")
+        sounddevice.play(data, rate, device=out)
+        sounddevice.wait()
+    finally:
+        os.unlink(path)
 
 
 # --- Main loop ---------------------------------------------------------------
@@ -251,13 +313,15 @@ def game_over_text(board, player_color, lang):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--color", choices=["white", "black"], required=True, help="your colour")
+    ap.add_argument("--color", choices=["white", "black"], help="your colour")
+    ap.add_argument("--test-voice", action="store_true", help="speak one test line into the call, then quit")
     ap.add_argument("--fen", help="start from this position instead of the initial one")
     ap.add_argument("--think", type=float, default=0.5, help="Stockfish seconds per move")
     ap.add_argument("--interval", type=float, default=1.0, help="seconds between screenshots")
     ap.add_argument("--region", help="x,y,w,h to capture if the WhatsApp window is not found")
-    ap.add_argument("--device", default="BlackHole 2ch", help="audio device for `say` ('' = speakers)")
-    ap.add_argument("--voice", default="Anna", help="macOS voice ('' = system default)")
+    ap.add_argument("--device", default=DEFAULT_DEVICE, help="audio device to speak into ('' = speakers)")
+    ap.add_argument("--voice", default=DEFAULT_VOICE, help="voice name, or part of it ('' = system default)")
+    ap.add_argument("--stockfish", help="path to the Stockfish program, if it isn't on PATH")
     ap.add_argument("--lang", choices=["de", "en"], default="de")
     ap.add_argument("--announce-opponent", action="store_true", help="also speak the move that was detected")
     ap.add_argument("--tolerance", type=int, default=3, help="misread squares allowed elsewhere")
@@ -265,9 +329,16 @@ def main():
     ap.add_argument("--blur-threshold", type=float, default=50.0)
     args = ap.parse_args()
 
-    stockfish = shutil.which("stockfish")
+    if args.test_voice:
+        speak("Test. Springer f3." if args.lang == "de" else "Test. Knight to f3.", args.device, args.voice)
+        return
+    if not args.color:
+        ap.error("--color is required")
+
+    stockfish = args.stockfish or shutil.which("stockfish")
     if not stockfish:
-        sys.exit("Stockfish not found: brew install stockfish")
+        sys.exit("Stockfish not found: pass --stockfish C:\\path\\to\\stockfish.exe" if WINDOWS
+                 else "Stockfish not found: brew install stockfish")
 
     player = chess.WHITE if args.color == "white" else chess.BLACK
     board = chess.Board(args.fen) if args.fen else chess.Board()
@@ -275,9 +346,11 @@ def main():
     engine = chess.engine.SimpleEngine.popen_uci(stockfish)
     frames = FrameFilter(args.change_threshold, args.blur_threshold)
 
-    window_id = find_whatsapp_window_id()
-    if not window_id and not args.region:
-        sys.exit("WhatsApp window not found. Install pyobjc-framework-Quartz or pass --region x,y,w,h")
+    window = None
+    if not args.region:
+        print("Waiting for the WhatsApp call window (answer the call and keep it visible)...")
+        while not (window := find_whatsapp_window()):
+            time.sleep(2)
 
     def suggest():
         result = engine.play(board, chess.engine.Limit(time=args.think))
@@ -291,7 +364,7 @@ def main():
     try:
         while not board.is_game_over():
             started = time.monotonic()
-            img = grab_frame(window_id, args.region)
+            img = grab_frame(window, args.region)
             if frames.worth_reading(img):
                 try:
                     ranks = read_board(client, img, player)

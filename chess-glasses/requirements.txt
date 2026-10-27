@@ -2,3 +2,8 @@ anthropic>=2.3.0
 chess>=1.11
 pillow>=10
 pyobjc-framework-Quartz>=10; sys_platform == "darwin"
+mss>=9; sys_platform == "win32"
+pygetwindow>=0.0.9; sys_platform == "win32"
+pyttsx3>=2.90; sys_platform == "win32"
+sounddevice>=0.4; sys_platform == "win32"
+soundfile>=0.12; sys_platform == "win32"
