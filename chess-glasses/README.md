@@ -22,6 +22,10 @@ Brille ──WhatsApp-Videoanruf──▶ PC (WhatsApp-App)
 
 ## Einrichtung (Windows)
 
+**Kurzfassung:** Doppelklick auf `Einrichten.bat` erledigt Python, Pakete, Stockfish und den
+API-Key und sagt dir, ob VB-CABLE fehlt. Dann `Foto-Test.bat` (Fotos draufziehen) und
+`Ton-Test.bat` (während des Anrufs) ausprobieren. Von Hand geht es so:
+
 1. **Python** installieren (python.org, beim Installieren „Add python.exe to PATH“ anhaken).
 2. **VB-CABLE** installieren (vb-audio.com/Cable, als Administrator), danach neu starten.
    Das ist das virtuelle Kabel: was auf „CABLE Input“ abgespielt wird, kommt bei

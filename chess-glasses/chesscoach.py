@@ -311,10 +311,46 @@ def game_over_text(board, player_color, lang):
     return p["draw"]
 
 
+def photo_test(paths, color, stockfish, think, lang):
+    """Show what Claude reads from each photo, and the move Stockfish would pick there."""
+    player = chess.WHITE if color == "white" else chess.BLACK
+    client = anthropic.Anthropic()
+    engine = chess.engine.SimpleEngine.popen_uci(stockfish)
+    try:
+        for path in paths:
+            print(f"\n=== {path}")
+            img = Image.open(path).convert("RGB")
+            img.thumbnail((1280, 1280))
+            started = time.monotonic()
+            ranks = read_board(client, img, player)
+            print(f"  read in {time.monotonic() - started:.1f} s")
+            if ranks is None:
+                print("  no board recognised")
+                continue
+            placement = "/".join(ranks)
+            for n in range(8, 0, -1):
+                placement = placement.replace("." * n, str(n))
+            board = chess.Board(f"{placement} {'w' if player == chess.WHITE else 'b'} - - 0 1")
+            print(board)
+            print(f"  FEN: {board.fen()}")
+            if not board.is_valid():
+                print("  not a legal position (a piece was misread), so no move")
+                continue
+            if board.is_game_over():
+                print(f"  {game_over_text(board, player, lang)}")
+                continue
+            move = engine.play(board, chess.engine.Limit(time=think)).move
+            print(f"  best move: {board.san(move)}  ({describe_move(board, move, lang)})")
+    finally:
+        engine.quit()
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--color", choices=["white", "black"], help="your colour")
     ap.add_argument("--test-voice", action="store_true", help="speak one test line into the call, then quit")
+    ap.add_argument("--photo", nargs="+", metavar="FILE",
+                    help="read the board from these photos and print the best move (--color = side to move)")
     ap.add_argument("--fen", help="start from this position instead of the initial one")
     ap.add_argument("--think", type=float, default=0.5, help="Stockfish seconds per move")
     ap.add_argument("--interval", type=float, default=1.0, help="seconds between screenshots")
@@ -332,13 +368,17 @@ def main():
     if args.test_voice:
         speak("Test. Springer f3." if args.lang == "de" else "Test. Knight to f3.", args.device, args.voice)
         return
-    if not args.color:
+    if not args.color and not args.photo:
         ap.error("--color is required")
 
     stockfish = args.stockfish or shutil.which("stockfish")
     if not stockfish:
         sys.exit("Stockfish not found: pass --stockfish C:\\path\\to\\stockfish.exe" if WINDOWS
                  else "Stockfish not found: brew install stockfish")
+
+    if args.photo:
+        photo_test(args.photo, args.color or "white", stockfish, args.think, args.lang)
+        return
 
     player = chess.WHITE if args.color == "white" else chess.BLACK
     board = chess.Board(args.fen) if args.fen else chess.Board()
