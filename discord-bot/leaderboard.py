@@ -79,20 +79,30 @@ BOARDS = [
 ]
 
 
+def _stats_files(server_dir):
+    level = _level_dir(server_dir)
+    # Ältere Versionen legen die Dateien unter world/stats ab, neuere unter world/players/stats
+    return glob(os.path.join(level, "stats", "*.json")) + glob(
+        os.path.join(level, "players", "stats", "*.json")
+    )
+
+
+def stats_signature(server_dir):
+    """Ändert sich, sobald Minecraft Statistiken speichert oder ein Spieler dazukommt."""
+    files = _stats_files(server_dir)
+    newest = max((os.path.getmtime(path) for path in files), default=0)
+    return len(files), newest
+
+
 def collect_rankings(server_dir):
     """Liest alle Spielerstatistiken und gibt pro Rangliste die Top 10 zurück.
 
     Jeder Eintrag ist (uuid, name, wert); Spieler mit 0 tauchen nicht auf.
     """
     names = _player_names(server_dir)
-    level = _level_dir(server_dir)
-    # Ältere Versionen legen die Dateien unter world/stats ab, neuere unter world/players/stats
-    files = glob(os.path.join(level, "stats", "*.json")) + glob(
-        os.path.join(level, "players", "stats", "*.json")
-    )
 
     players = {}
-    for path in files:
+    for path in _stats_files(server_dir):
         uuid = os.path.splitext(os.path.basename(path))[0]
         try:
             with open(path, encoding="utf-8") as f:

@@ -469,22 +469,25 @@ class WhitelistListView(discord.ui.LayoutView):
 # ----------------------------------------------------------------- Ranglisten
 
 RANKING_IMAGE = "ranglisten.png"
-RANKING_INTERVAL = 600  # Sekunden; Minecraft schreibt die Statistiken ohnehin nur beim Speichern
 
-_ranking_cache = {"at": 0.0, "png": None}
+_ranking_cache = {"signature": None, "png": None}
 
 
 def ranking_png():
-    """Ranglisten-Bild als PNG-Bytes, höchstens alle 10 Minuten neu gezeichnet.
+    """Ranglisten-Bild als PNG-Bytes, neu gezeichnet nur wenn Minecraft Statistiken gespeichert hat.
 
+    Paper speichert sie beim Autosave (standardmäßig alle 5 Minuten) und beim Ausloggen.
     None, solange kein Server-Ordner eingestellt ist oder noch nie gezeichnet wurde.
     """
-    if MC_SERVER_DIR and time.time() - _ranking_cache["at"] >= RANKING_INTERVAL:
-        try:
+    if not MC_SERVER_DIR:
+        return _ranking_cache["png"]
+    try:
+        signature = leaderboard.stats_signature(MC_SERVER_DIR)
+        if signature != _ranking_cache["signature"]:
             _ranking_cache["png"] = leaderboard.render_rankings(MC_SERVER_DIR).getvalue()
-            _ranking_cache["at"] = time.time()
-        except Exception:
-            traceback.print_exc()  # altes Bild behalten, beim nächsten Update erneut versuchen
+            _ranking_cache["signature"] = signature
+    except Exception:
+        traceback.print_exc()  # altes Bild behalten, beim nächsten Update erneut versuchen
     return _ranking_cache["png"]
 
 
@@ -610,7 +613,7 @@ class InfoPanelView(discord.ui.LayoutView):
                 )
             )
             self.add_item(
-                discord.ui.TextDisplay(footer_line("Ranglisten alle 10 Minuten neu"))
+                discord.ui.TextDisplay(footer_line("Ranglisten etwa alle 5 Minuten neu"))
             )
 
 
