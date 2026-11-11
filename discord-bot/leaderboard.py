@@ -140,20 +140,20 @@ def _fallback_head(seed):
     return face
 
 
-def player_head(uuid):
-    """8 × 8-Gesicht inklusive Hut-Ebene, einmal pro Lauf des Bots geladen."""
-    if uuid not in _head_cache:
+def player_head(key):
+    """8 × 8-Gesicht inklusive Hut-Ebene, per UUID oder Name; einmal pro Lauf des Bots geladen."""
+    if key not in _head_cache:
         try:
             request = urllib.request.Request(
-                f"https://mc-heads.net/avatar/{uuid}/8",
+                f"https://mc-heads.net/avatar/{key}/8",
                 headers={"User-Agent": "minecraft-discord-bot"},
             )
             with urllib.request.urlopen(request, timeout=5) as response:
                 face = Image.open(io.BytesIO(response.read())).convert("RGB")
-            _head_cache[uuid] = face.resize((8, 8), Image.NEAREST)
+            _head_cache[key] = face.resize((8, 8), Image.NEAREST)
         except Exception:
-            return _fallback_head(uuid)  # nicht cachen, nächstes Mal neu versuchen
-    return _head_cache[uuid]
+            return _fallback_head(key)  # nicht cachen, nächstes Mal neu versuchen
+    return _head_cache[key]
 
 
 # ------------------------------------------------------------------- Zeichnen
@@ -245,14 +245,130 @@ def _card(board, rows):
     return img.resize((CARD_W * 2, CARD_H * 2), Image.LANCZOS)
 
 
-def render_rankings(server_dir):
-    """Alle Ranglisten nebeneinander als PNG mit durchsichtigem Hintergrund."""
-    cards = [_card(board, rows) for board, rows in zip(BOARDS, collect_rankings(server_dir))]
-    strip = Image.new("RGBA", (CARD_W * 2 * len(cards), CARD_H * 2), (0, 0, 0, 0))
+# Grasblock fürs Server-Banner, als einziges Symbol mehrfarbig
+GRASS_BLOCK = ["GGGGGGGGG", "GgGGGgGGg", "GBgGBGgBG", "BBBgBBBGB", "BbBBBbBBB",
+               "BBBbBBBbB", "bBBBBBbBB", "BBbBBBBBb", "BBBBbBBBB"]
+GRASS_COLORS = {"G": (106, 170, 64), "g": (80, 140, 50), "B": (134, 96, 67), "b": (106, 76, 52)}
+
+BANNER_COLOR = (178, 150, 232)
+BANNER_OFFLINE = (150, 140, 165)
+GREEN, RED = (70, 170, 90), (200, 70, 70)
+BANNER_H = 300
+
+
+def _banner(info):
+    """Server-Banner über den Ranglisten, so breit wie die drei Karten zusammen.
+
+    `info` kommt aus dem Bot: online, address, players, max, tps, whitelist,
+    deaths (Liste (Name, Anzahl) absteigend, None wenn offline) und dims (Liste (Name, offen)).
+    """
+    R = lambda *v: [int(x * SCALE) for x in v]
+    W = CARD_W * 3
+    color = BANNER_COLOR if info["online"] else BANNER_OFFLINE
+    muted, line = _shade(color, 0.42), _shade(color, 0.82)
+
+    img = Image.new("RGBA", R(W, BANNER_H), (0, 0, 0, 0))
+    d = ImageDraw.Draw(img)
+    # Ränder wie bei den Karten: links bündig mit der ersten, rechts mit der dritten
+    x0, y0, x1, y1 = 19, 18, CARD_W * 2 + 315, BANNER_H - 22
+    d.rectangle(R(x0 + 4, y0 + 4, x1 + 4, y1 + 4), fill=INK)
+    d.rectangle(R(x0, y0, x1, y1), fill=color, outline=INK, width=3 * SCALE)
+
+    d.rectangle(R(37, 42, 80, 83), fill=INK)
+    block = Image.new("RGB", (9, 9))
+    for y, row in enumerate(GRASS_BLOCK):
+        for x, c in enumerate(row):
+            block.putpixel((x, y), GRASS_COLORS[c])
+    img.paste(block.resize(R(27, 27), Image.NEAREST), tuple(R(45, 49)))
+    d.text(R(92, 59), "Server", font=_font(23, 700), fill=INK, anchor="ls")
+    d.text(R(93, 81), info["address"], font=_number_font(10), fill=muted, anchor="ls")
+
+    status = "ONLINE" if info["online"] else "OFFLINE"
+    status_font = _number_font(11)
+    right = x1 - 18
+    width = d.textlength(status, font=status_font) / SCALE + 34
+    d.rectangle(R(right - width, 44, right, 74), fill=INK)
+    d.rectangle(R(right - width + 10, 54, right - width + 20, 64), fill=GREEN if info["online"] else RED)
+    d.text(R(right - width + 27, 59), status, font=status_font, fill=color, anchor="lm")
+    d.line(R(37, 100, right, 100), fill=line, width=SCALE)
+
+    label_font, name_font = _number_font(10), _font(14, 600)
+    column = (right - 37) / 3
+
+    def label(x, text):
+        d.text(R(x, 126), text, font=label_font, fill=muted, anchor="ls")
+
+    def head(x, y, key, size=26):
+        d.rectangle(R(x, y, x + size, y + size), fill=INK)
+        img.paste(player_head(key).resize(R(size - 2, size - 2), Image.NEAREST), tuple(R(x + 1, y + 1)))
+
+    # Spieler
+    x = 37
+    label(x, "SPIELER")
+    count = f"{len(info['players'])}/{info['max']}" if info["online"] else "-"
+    d.text(R(x, 166), count, font=_number_font(24), fill=INK, anchor="ls")
+    shown = info["players"][:8]
+    for index, name in enumerate(shown):
+        head(x + index * 30, 180, name)
+    if len(info["players"]) > len(shown):
+        d.text(R(x + len(shown) * 30 + 4, 193), f"+{len(info['players']) - len(shown)}",
+               font=_number_font(10), fill=INK, anchor="lm")
+    if not info["players"]:
+        text = "niemand online" if info["online"] else "Server nicht erreichbar"
+        d.text(R(x, 197), text, font=_font(12, 600), fill=muted, anchor="ls")
+    extra = [f"WHITELIST {info['whitelist']}"]
+    if info["tps"] is not None:
+        extra.insert(0, f"TPS {info['tps']:.1f}")
+    d.text(R(x, 240), "   ".join(extra), font=_number_font(9.5), fill=INK, anchor="ls")
+
+    # Tode, die Top 3
+    x = 37 + column
+    d.line(R(x - 12, 112, x - 12, 250), fill=line, width=SCALE)
+    deaths = info["deaths"]
+    label(x, f"TODE · {sum(n for _, n in deaths)}" if deaths is not None else "TODE")
+    if not deaths:
+        text = "noch niemand gestorben" if deaths is not None else "Server nicht erreichbar"
+        d.text(R(x, 160), text, font=_font(12, 600), fill=muted, anchor="ls")
+    for index, (name, n) in enumerate((deaths or [])[:3]):
+        y = 140 + index * 34
+        head(x, y, name)
+        value = str(n)
+        d.text(R(x + column - 26, y + 13), value, font=_number_font(11.5), fill=INK, anchor="rm")
+        room = R(x + column - 26)[0] - d.textlength(value, font=_number_font(11.5)) - R(x + 34 + 8)[0]
+        d.text(R(x + 34, y + 13), _fit(d, name, name_font, room), font=name_font, fill=INK, anchor="lm")
+
+    # Dimensionen
+    x = 37 + 2 * column
+    d.line(R(x - 12, 112, x - 12, 250), fill=line, width=SCALE)
+    label(x, "DIMENSIONEN")
+    for index, (name, open_) in enumerate(info["dims"]):
+        y = 140 + index * 40
+        d.rectangle(R(x, y, x + 26, y + 26), fill=INK)
+        d.rectangle(R(x + 6, y + 6, x + 20, y + 20), fill=GREEN if open_ else RED)
+        d.text(R(x + 34, y + 13), name, font=name_font, fill=INK, anchor="lm")
+        d.text(R(x + column - 26, y + 13), "OFFEN" if open_ else "GESPERRT",
+               font=label_font, fill=INK, anchor="rm")
+
+    return img.resize((W * 2, BANNER_H * 2), Image.LANCZOS)
+
+
+def render_info(info, server_dir=None):
+    """Server-Banner und darunter die Ranglisten als ein PNG mit durchsichtigem Hintergrund.
+
+    Ohne Server-Ordner gibt es keine Statistiken, dann nur das Banner.
+    """
+    banner = _banner(info)
+    cards = []
+    if server_dir:
+        cards = [_card(board, rows) for board, rows in zip(BOARDS, collect_rankings(server_dir))]
+
+    height = banner.height + (CARD_H * 2 if cards else 0)
+    image = Image.new("RGBA", (banner.width, height), (0, 0, 0, 0))
+    image.alpha_composite(banner, (0, 0))
     for index, card in enumerate(cards):
-        strip.alpha_composite(card, (CARD_W * 2 * index, 0))
+        image.alpha_composite(card, (CARD_W * 2 * index, banner.height))
 
     buffer = io.BytesIO()
-    strip.save(buffer, format="PNG", optimize=True)
+    image.save(buffer, format="PNG", optimize=True)
     buffer.seek(0)
     return buffer

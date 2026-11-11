@@ -2,7 +2,6 @@ import asyncio
 import discord
 from discord import app_commands
 from discord.ext import commands, tasks
-import io
 import json
 import os
 import re
@@ -54,7 +53,6 @@ DIMENSIONS = {
 PANEL_LAYOUT = 2
 
 ACCENT = 0x9D4EDD
-ACCENT_OFFLINE = 0x5A189A
 
 # Panels nennen Spieler per Mention — anpingen soll das niemanden.
 NO_PINGS = discord.AllowedMentions.none()
@@ -194,18 +192,17 @@ def save_tracked_message(state_file, channel, message):
     )
 
 
-async def publish_panel(channel, state_file, view, files=None):
+async def publish_panel(channel, state_file, view):
     """Bearbeitet die gemerkte Panel-Nachricht oder postet sie neu.
 
-    `files` ersetzt beim Bearbeiten alle bisherigen Anhänge.
     Gibt die neu gepostete Nachricht zurück, sonst None.
     """
     message = await fetch_tracked_message(channel, state_file)
     try:
         if message:
-            await message.edit(view=view, attachments=files or [], allowed_mentions=NO_PINGS)
+            await message.edit(view=view, allowed_mentions=NO_PINGS)
             return None
-        message = await channel.send(view=view, files=files, allowed_mentions=NO_PINGS)
+        message = await channel.send(view=view, allowed_mentions=NO_PINGS)
         save_tracked_message(state_file, channel, message)
         return message
     except Exception:
@@ -466,31 +463,6 @@ class WhitelistListView(discord.ui.LayoutView):
         self.add_item(build_whitelist_container(guild, buttons=False))
 
 
-# ----------------------------------------------------------------- Ranglisten
-
-RANKING_IMAGE = "ranglisten.png"
-
-_ranking_cache = {"signature": None, "png": None}
-
-
-def ranking_png():
-    """Ranglisten-Bild als PNG-Bytes, neu gezeichnet nur wenn Minecraft Statistiken gespeichert hat.
-
-    Paper speichert sie beim Autosave (standardmäßig alle 5 Minuten) und beim Ausloggen.
-    None, solange kein Server-Ordner eingestellt ist oder noch nie gezeichnet wurde.
-    """
-    if not MC_SERVER_DIR:
-        return _ranking_cache["png"]
-    try:
-        signature = leaderboard.stats_signature(MC_SERVER_DIR)
-        if signature != _ranking_cache["signature"]:
-            _ranking_cache["png"] = leaderboard.render_rankings(MC_SERVER_DIR).getvalue()
-            _ranking_cache["signature"] = signature
-    except Exception:
-        traceback.print_exc()  # altes Bild behalten, beim nächsten Update erneut versuchen
-    return _ranking_cache["png"]
-
-
 # ----------------------------------------------------------------- Info-Panel
 
 
@@ -556,65 +528,43 @@ def collect_server_info():
     return {"players": players, "max": maximum, "tps": tps, "deaths": deaths}
 
 
+INFO_IMAGE = "server.png"
+
+# Signatur der zuletzt geposteten Daten — ändert sich nichts, wird nichts neu gezeichnet
+_info_posted = {"signature": None}
+
+
+def info_snapshot():
+    """Alles, was das Info-Bild zeigt, als einfache Daten zum Zeichnen und Vergleichen."""
+    info = collect_server_info()
+    state = load_dimensions()
+    deaths = None
+    if info:
+        deaths = sorted(
+            ((name, count) for name, count in info["deaths"].items() if count > 0),
+            key=lambda item: -item[1],
+        )
+    return {
+        "online": info is not None,
+        "address": server_address(),
+        "players": info["players"] if info else [],
+        "max": info["max"] if info else "?",
+        "tps": info["tps"] if info else None,
+        "whitelist": len(load_whitelisted()),
+        "deaths": deaths,
+        "dims": [(meta["label"], state[key]) for key, meta in DIMENSIONS.items()],
+    }
+
+
 class InfoPanelView(discord.ui.LayoutView):
-    def __init__(self, guild=None, rankings=False):
+    """Das gezeichnete Info-Bild und darunter die Server-Adresse zum Kopieren."""
+
+    def __init__(self):
         super().__init__(timeout=None)
-        info = collect_server_info()
-        state = load_dimensions()
-        whitelisted = load_whitelisted()
-
-        status = "🟢 Server online" if info else "🔴 Server offline"
-        items = [
-            panel_header(f"## {status}\n-# `{server_address()}`", guild),
-            discord.ui.Separator(),
-        ]
-
-        if info:
-            players = ", ".join(info["players"]) or "-# gerade niemand online"
-            stats = [f"**Whitelist** {len(whitelisted)}"]
-            if info["tps"] is not None:
-                stats.append(f"**TPS** {info['tps']:.1f}")
-            items.append(
-                discord.ui.TextDisplay(
-                    f"### 👥 Spieler · {len(info['players'])} / {info['max']}\n{players}\n"
-                    + "  ·  ".join(stats)
-                )
-            )
-
-            ranking = sorted(info["deaths"].items(), key=lambda item: -item[1])
-            deaths = clip_lines(
-                [f"{name} — **{count}**" for name, count in ranking],
-                empty="-# noch niemand gestorben",
-            )
-            items += [
-                discord.ui.Separator(),
-                discord.ui.TextDisplay(
-                    f"### 💀 Tode · {sum(info['deaths'].values())}\n{deaths}"
-                ),
-                discord.ui.Separator(),
-            ]
-
-        dimensions = "   ".join(
-            f"{'🟢' if state[key] else '🔴'} {meta['label']}"
-            for key, meta in DIMENSIONS.items()
-        )
-        items.append(discord.ui.TextDisplay(f"### 🌍 Dimensionen\n{dimensions}"))
-        if not rankings:
-            items.append(discord.ui.TextDisplay(footer_line()))
         self.add_item(
-            discord.ui.Container(*items, accent_colour=ACCENT if info else ACCENT_OFFLINE)
+            discord.ui.MediaGallery(discord.MediaGalleryItem(f"attachment://{INFO_IMAGE}"))
         )
-
-        if rankings:
-            # Außerhalb der Karte, damit das Bild die volle Breite bekommt
-            self.add_item(
-                discord.ui.MediaGallery(
-                    discord.MediaGalleryItem(f"attachment://{RANKING_IMAGE}")
-                )
-            )
-            self.add_item(
-                discord.ui.TextDisplay(footer_line("Ranglisten etwa alle 5 Minuten neu"))
-            )
+        self.add_item(discord.ui.TextDisplay(f"-# Server-IP: `{server_address()}`"))
 
 
 async def update_info_panel():
@@ -626,11 +576,36 @@ async def update_info_panel():
         print(f"Info-Kanal {INFO_CHANNEL_ID} nicht gefunden")
         return
 
-    # Dateien lesen, Köpfe laden und zeichnen dauert — nicht im Event-Loop
-    png = await asyncio.to_thread(ranking_png)
-    files = [discord.File(io.BytesIO(png), filename=RANKING_IMAGE)] if png else None
-    view = InfoPanelView(channel.guild, rankings=bool(png))
-    await publish_panel(channel, INFO_STATE_FILE, view, files)
+    snapshot = info_snapshot()
+    try:
+        stats = leaderboard.stats_signature(MC_SERVER_DIR) if MC_SERVER_DIR else None
+    except OSError:
+        traceback.print_exc()
+        stats = None
+    signature = (json.dumps(snapshot, sort_keys=True), stats)
+
+    message = await fetch_tracked_message(channel, INFO_STATE_FILE)
+    if message and signature == _info_posted["signature"]:
+        return
+
+    try:
+        # Dateien lesen, Köpfe laden und zeichnen dauert — nicht im Event-Loop
+        image = await asyncio.to_thread(leaderboard.render_info, snapshot, MC_SERVER_DIR)
+    except Exception:
+        traceback.print_exc()
+        return
+
+    file = discord.File(image, filename=INFO_IMAGE)
+    try:
+        if message:
+            await message.edit(view=InfoPanelView(), attachments=[file])
+        else:
+            message = await channel.send(view=InfoPanelView(), file=file)
+            save_tracked_message(INFO_STATE_FILE, channel, message)
+    except Exception:
+        traceback.print_exc()
+        return
+    _info_posted["signature"] = signature
 
 
 async def remove_old_ranking_message():
