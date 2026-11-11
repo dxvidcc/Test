@@ -9,6 +9,8 @@ import time
 import traceback
 from dotenv import load_dotenv
 
+import leaderboard
+
 load_dotenv()
 
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
@@ -27,6 +29,10 @@ ADMIN_PANEL_CHANNEL_ID = int(
 # Öffentlicher Info-Kanal. Ohne Eintrag wird kein Info-Panel gepflegt.
 INFO_CHANNEL_ID = int(os.getenv("INFO_CHANNEL_ID") or 0)
 
+# Ranglisten-Kanal und Server-Ordner mit den Statistikdateien. Fehlt eins, gibt es keine Ranglisten.
+RANKING_CHANNEL_ID = int(os.getenv("RANKING_CHANNEL_ID") or 0)
+MC_SERVER_DIR = os.getenv("MC_SERVER_DIR")
+
 # TEST_MODE=true → RCON wird übersprungen, alles andere funktioniert normal
 TEST_MODE = os.getenv("TEST_MODE", "false").lower() == "true"
 
@@ -34,6 +40,7 @@ WHITELIST_FILE = "whitelisted.json"
 INSTRUCTIONS_STATE_FILE = "instructions_message.json"
 PANEL_STATE_FILE = "panel_message.json"
 INFO_STATE_FILE = "info_message.json"
+RANKING_STATE_FILE = "ranking_message.json"
 DIMENSIONS_FILE = "dimensions.json"
 
 # Dimensionen, die das Panel schalten kann — Schlüssel muss zur Permission passen.
@@ -596,6 +603,62 @@ async def _wait_for_bot():
     await bot.wait_until_ready()
 
 
+# ----------------------------------------------------------------- Ranglisten
+
+RANKING_IMAGE = "ranglisten.png"
+
+
+class RankingView(discord.ui.LayoutView):
+    """Nur das Ranglisten-Bild und eine graue Zeile darunter, ohne Rahmen."""
+
+    def __init__(self):
+        super().__init__(timeout=None)
+        self.add_item(
+            discord.ui.MediaGallery(
+                discord.MediaGalleryItem(f"attachment://{RANKING_IMAGE}")
+            )
+        )
+        self.add_item(discord.ui.TextDisplay(footer_line("alle 10 Minuten neu")))
+
+
+async def update_ranking_panel():
+    if not (RANKING_CHANNEL_ID and MC_SERVER_DIR):
+        return
+
+    channel = bot.get_channel(RANKING_CHANNEL_ID)
+    if channel is None:
+        print(f"Ranglisten-Kanal {RANKING_CHANNEL_ID} nicht gefunden")
+        return
+
+    try:
+        # Dateien lesen, Köpfe laden und zeichnen dauert — nicht im Event-Loop
+        image = await asyncio.to_thread(leaderboard.render_rankings, MC_SERVER_DIR)
+    except Exception:
+        traceback.print_exc()
+        return
+
+    message = await fetch_tracked_message(channel, RANKING_STATE_FILE)
+    file = discord.File(image, filename=RANKING_IMAGE)
+    try:
+        if message:
+            await message.edit(view=RankingView(), attachments=[file])
+        else:
+            message = await channel.send(view=RankingView(), file=file)
+            save_tracked_message(RANKING_STATE_FILE, channel, message)
+    except Exception:
+        traceback.print_exc()
+
+
+@tasks.loop(minutes=10)
+async def ranking_refresher():
+    await update_ranking_panel()
+
+
+@ranking_refresher.before_loop
+async def _wait_for_bot_rankings():
+    await bot.wait_until_ready()
+
+
 # --------------------------------------------------------------- Admin-Panel
 
 
@@ -984,6 +1047,9 @@ async def on_ready():
     await update_info_panel()
     if not info_refresher.is_running():
         info_refresher.start()
+    # Der Loop läuft sofort einmal los und postet damit auch die erste Rangliste
+    if not ranking_refresher.is_running():
+        ranking_refresher.start()
 
 
 @bot.event
