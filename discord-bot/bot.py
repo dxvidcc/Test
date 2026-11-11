@@ -5,6 +5,7 @@ from discord.ext import commands, tasks
 import json
 import os
 import re
+import time
 import traceback
 from dotenv import load_dotenv
 
@@ -37,9 +38,19 @@ DIMENSIONS_FILE = "dimensions.json"
 
 # Dimensionen, die das Panel schalten kann — Schlüssel muss zur Permission passen.
 DIMENSIONS = {
-    "nether": {"label": "Nether", "caps": "ɴᴇᴛʜᴇʀ"},
-    "end": {"label": "End", "caps": "ᴇɴᴅ"},
+    "nether": {"label": "Nether"},
+    "end": {"label": "End"},
 }
+
+# Panel-Nachrichten im Components-V2-Layout. Gemerkte Nachrichten mit älterer
+# Version stammen noch aus dem Embed-Layout und werden einmalig neu gepostet.
+PANEL_LAYOUT = 2
+
+ACCENT = 0x9D4EDD
+ACCENT_OFFLINE = 0x5A189A
+
+# Panels nennen Spieler per Mention — anpingen soll das niemanden.
+NO_PINGS = discord.AllowedMentions.none()
 
 intents = discord.Intents.default()
 intents.members = True
@@ -152,16 +163,77 @@ async def fetch_tracked_message(channel, state_file):
     if state.get("channel_id") != channel.id or not state.get("message_id"):
         return None
     try:
-        return await channel.fetch_message(state["message_id"])
+        message = await channel.fetch_message(state["message_id"])
     except discord.NotFound:
         return None
     except Exception:
         traceback.print_exc()
         return None
 
+    if state.get("layout") != PANEL_LAYOUT:
+        # Altes Embed-Panel: weg damit, der Aufrufer postet es im neuen Layout neu
+        try:
+            await message.delete()
+        except discord.HTTPException:
+            traceback.print_exc()
+        return None
+    return message
+
 
 def save_tracked_message(state_file, channel, message):
-    _save_json(state_file, {"channel_id": channel.id, "message_id": message.id})
+    _save_json(
+        state_file,
+        {"channel_id": channel.id, "message_id": message.id, "layout": PANEL_LAYOUT},
+    )
+
+
+async def publish_panel(channel, state_file, view):
+    """Bearbeitet die gemerkte Panel-Nachricht oder postet sie neu.
+
+    Gibt die neu gepostete Nachricht zurück, sonst None.
+    """
+    message = await fetch_tracked_message(channel, state_file)
+    try:
+        if message:
+            await message.edit(view=view, allowed_mentions=NO_PINGS)
+            return None
+        message = await channel.send(view=view, allowed_mentions=NO_PINGS)
+        save_tracked_message(state_file, channel, message)
+        return message
+    except Exception:
+        traceback.print_exc()
+        return None
+
+
+# ------------------------------------------------------------- Panel-Bausteine
+
+
+def server_address():
+    return f"{RCON_HOST}:25565"
+
+
+def panel_header(text, guild=None):
+    """Kopfzeile eines Panels, rechts daneben das Server-Icon falls vorhanden."""
+    if guild and guild.icon:
+        return discord.ui.Section(text, accessory=discord.ui.Thumbnail(guild.icon.url))
+    return discord.ui.TextDisplay(text)
+
+
+def clip_lines(lines, empty, limit=1500):
+    """Fügt Zeilen zusammen, kürzt aber vor Discords Textgrenze pro Nachricht."""
+    shown, used = [], 0
+    for index, line in enumerate(lines):
+        if used + len(line) > limit:
+            shown.append(f"-# … und {len(lines) - index} weitere")
+            break
+        shown.append(line)
+        used += len(line) + 1
+    return "\n".join(shown) or empty
+
+
+def footer_line(*parts):
+    """Graue Fußzeile; <t:…:R> zeigt Discord als „vor x Minuten“ an."""
+    return "-# " + "  ·  ".join(parts + (f"aktualisiert <t:{int(time.time())}:R>",))
 
 
 class AdminRemoveSelect(discord.ui.Select):
@@ -281,10 +353,7 @@ class MyEntryView(EphemeralPanel):
         )
 
 
-class WhitelistPanelView(discord.ui.View):
-    def __init__(self):
-        super().__init__(timeout=None)
-
+class WhitelistButtons(discord.ui.ActionRow):
     @discord.ui.button(
         label="Whitelisten",
         style=discord.ButtonStyle.primary,
@@ -353,6 +422,42 @@ class WhitelistPanelView(discord.ui.View):
         )
 
 
+def build_whitelist_container(guild=None, buttons=True):
+    whitelisted = load_whitelisted()
+    players = clip_lines(
+        [f"<@{uid}> — **{name}**" for uid, name in whitelisted.items()],
+        empty="-# noch niemand",
+    )
+
+    items = [
+        panel_header(
+            "## 🔮 Whitelist\n"
+            "Trag dich mit deinem **exakten** Minecraft-Namen ein, danach kannst du direkt joinen.",
+            guild,
+        ),
+        discord.ui.Separator(),
+        discord.ui.TextDisplay(f"### Spieler · {len(whitelisted)}\n{players}"),
+    ]
+    if buttons:
+        items += [discord.ui.Separator(), WhitelistButtons()]
+    items.append(discord.ui.TextDisplay(f"-# `{server_address()}`"))
+    return discord.ui.Container(*items, accent_colour=ACCENT)
+
+
+class WhitelistPanelView(discord.ui.LayoutView):
+    def __init__(self, guild=None):
+        super().__init__(timeout=None)
+        self.add_item(build_whitelist_container(guild))
+
+
+class WhitelistListView(discord.ui.LayoutView):
+    """Nur-Lesen-Ansicht der Whitelist für /whitelist-liste."""
+
+    def __init__(self, guild=None):
+        super().__init__(timeout=None)
+        self.add_item(build_whitelist_container(guild, buttons=False))
+
+
 # ----------------------------------------------------------------- Info-Panel
 
 
@@ -418,50 +523,55 @@ def collect_server_info():
     return {"players": players, "max": maximum, "tps": tps, "deaths": deaths}
 
 
-def build_info_embed(guild=None):
-    info = collect_server_info()
-    state = load_dimensions()
-    whitelisted = load_whitelisted()
+class InfoPanelView(discord.ui.LayoutView):
+    def __init__(self, guild=None):
+        super().__init__(timeout=None)
+        info = collect_server_info()
+        state = load_dimensions()
+        whitelisted = load_whitelisted()
 
-    embed = discord.Embed(
-        title="ѕᴇʀᴠᴇʀ",
-        description="🟢 **online**" if info else "🔴 **offline**",
-        color=0x9D4EDD if info else 0x5A189A,
-    )
-    if guild and guild.icon:
-        embed.set_thumbnail(url=guild.icon.url)
+        status = "🟢 Server online" if info else "🔴 Server offline"
+        items = [
+            panel_header(f"## {status}\n-# `{server_address()}`", guild),
+            discord.ui.Separator(),
+        ]
 
-    if info:
-        embed.add_field(
-            name="ѕᴘɪᴇʟᴇʀ",
-            value=f"**{len(info['players'])}** / {info['max']}"
-            + ("\n" + ", ".join(info["players"]) if info["players"] else ""),
-            inline=True,
-        )
-        embed.add_field(name="ᴡʜɪᴛᴇʟɪѕᴛ", value=f"**{len(whitelisted)}**", inline=True)
-        if info["tps"] is not None:
-            embed.add_field(name="ᴛᴘѕ", value=f"**{info['tps']:.1f}**", inline=True)
+        if info:
+            players = ", ".join(info["players"]) or "-# gerade niemand online"
+            stats = [f"**Whitelist** {len(whitelisted)}"]
+            if info["tps"] is not None:
+                stats.append(f"**TPS** {info['tps']:.1f}")
+            items.append(
+                discord.ui.TextDisplay(
+                    f"### 👥 Spieler · {len(info['players'])} / {info['max']}\n{players}\n"
+                    + "  ·  ".join(stats)
+                )
+            )
 
-        ranking = sorted(info["deaths"].items(), key=lambda item: -item[1])
-        embed.add_field(
-            name=f"ᴛᴏᴅᴇ ({sum(info['deaths'].values())})",
-            value="\n".join(f"{name} — **{count}**" for name, count in ranking)
-            or "_noch niemand gestorben_",
-            inline=False,
-        )
+            ranking = sorted(info["deaths"].items(), key=lambda item: -item[1])
+            deaths = clip_lines(
+                [f"{name} — **{count}**" for name, count in ranking],
+                empty="-# noch niemand gestorben",
+            )
+            items += [
+                discord.ui.Separator(),
+                discord.ui.TextDisplay(
+                    f"### 💀 Tode · {sum(info['deaths'].values())}\n{deaths}"
+                ),
+                discord.ui.Separator(),
+            ]
 
-    embed.add_field(
-        name="ᴅɪᴍᴇɴѕɪᴏɴᴇɴ",
-        value="  ".join(
+        dimensions = "   ".join(
             f"{'🟢' if state[key] else '🔴'} {meta['label']}"
             for key, meta in DIMENSIONS.items()
-        ),
-        inline=False,
-    )
-
-    embed.set_footer(text=f"{RCON_HOST}:25565")
-    embed.timestamp = discord.utils.utcnow()
-    return embed
+        )
+        items += [
+            discord.ui.TextDisplay(f"### 🌍 Dimensionen\n{dimensions}"),
+            discord.ui.TextDisplay(footer_line()),
+        ]
+        self.add_item(
+            discord.ui.Container(*items, accent_colour=ACCENT if info else ACCENT_OFFLINE)
+        )
 
 
 async def update_info_panel():
@@ -473,16 +583,7 @@ async def update_info_panel():
         print(f"Info-Kanal {INFO_CHANNEL_ID} nicht gefunden")
         return
 
-    message = await fetch_tracked_message(channel, INFO_STATE_FILE)
-    embed = build_info_embed(channel.guild)
-    try:
-        if message:
-            await message.edit(embed=embed)
-        else:
-            message = await channel.send(embed=embed)
-            save_tracked_message(INFO_STATE_FILE, channel, message)
-    except Exception:
-        traceback.print_exc()
+    await publish_panel(channel, INFO_STATE_FILE, InfoPanelView(channel.guild))
 
 
 @tasks.loop(seconds=60)
@@ -526,49 +627,13 @@ def get_online_players():
     return [name.strip() for name in names.split(",") if name.strip()]
 
 
-def build_panel_embed(guild=None):
-    state = load_dimensions()
-
-    try:
-        players = get_online_players()
-        online = f"👥 {len(players)}" + (f"\n{', '.join(players[:5])}" if players else "\nniemand")
-    except Exception:
-        traceback.print_exc()
-        online = "👥 —\nnicht erreichbar"
-
-    embed = discord.Embed(title="ᴀᴅᴍɪɴ-ᴘᴀɴᴇʟ", color=0x9D4EDD)
-    if guild and guild.icon:
-        embed.set_thumbnail(url=guild.icon.url)
-
-    for key, meta in DIMENSIONS.items():
-        embed.add_field(
-            name=meta["caps"],
-            value="🟢 offen" if state[key] else "🔴 gesperrt",
-            inline=True,
-        )
-    embed.add_field(name="ᴏɴʟɪɴᴇ", value=online, inline=True)
-
-    embed.set_footer(text=f"{RCON_HOST}:25565")
-    embed.timestamp = discord.utils.utcnow()
-    return embed
-
-
 async def update_panel_message():
     channel = bot.get_channel(ADMIN_PANEL_CHANNEL_ID)
     if channel is None:
         print(f"Admin-Panel-Kanal {ADMIN_PANEL_CHANNEL_ID} nicht gefunden")
         return
 
-    message = await fetch_tracked_message(channel, PANEL_STATE_FILE)
-    embed = build_panel_embed(channel.guild)
-    try:
-        if message:
-            await message.edit(embed=embed, view=AdminPanelView())
-        else:
-            message = await channel.send(embed=embed, view=AdminPanelView())
-            save_tracked_message(PANEL_STATE_FILE, channel, message)
-    except Exception:
-        traceback.print_exc()
+    await publish_panel(channel, PANEL_STATE_FILE, AdminPanelView(channel.guild))
 
 
 async def deny_non_admin(interaction):
@@ -680,44 +745,49 @@ class UnbanModal(discord.ui.Modal, title="♻️ Bann aufheben"):
         await close_panel(interaction, f"✅ Bann von **{name}** aufgehoben.")
 
 
-class AdminPanelView(discord.ui.View):
-    def __init__(self):
-        super().__init__(timeout=None)
+async def toggle_dimension(interaction, key):
+    if await deny_non_admin(interaction):
+        return
 
-    async def toggle(self, interaction, key):
-        if await deny_non_admin(interaction):
-            return
-
-        await interaction.response.defer()
-        unlocked = not load_dimensions()[key]
-        try:
-            set_dimension(key, unlocked)
-        except Exception:
-            traceback.print_exc()
-            await interaction.followup.send(
-                "❌ Fehler beim Verbinden mit dem Server.", ephemeral=True
-            )
-            return
-
-        label = DIMENSIONS[key]["label"]
-        await send_admin_log(
-            discord.Embed(
-                description=f"{'🟢' if unlocked else '🔴'} {interaction.user.mention} hat "
-                f"**{label}** {'geöffnet' if unlocked else 'gesperrt'}",
-                color=0x2ECC71 if unlocked else 0xE74C3C,
-            )
+    await interaction.response.defer()
+    unlocked = not load_dimensions()[key]
+    try:
+        set_dimension(key, unlocked)
+    except Exception:
+        traceback.print_exc()
+        await interaction.followup.send(
+            "❌ Fehler beim Verbinden mit dem Server.", ephemeral=True
         )
-        await update_panel_message()
-        await update_info_panel()
+        return
 
-    @discord.ui.button(label="Nether", style=discord.ButtonStyle.secondary, custom_id="panel_toggle_nether")
-    async def toggle_nether(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await self.toggle(interaction, "nether")
+    label = DIMENSIONS[key]["label"]
+    await send_admin_log(
+        discord.Embed(
+            description=f"{'🟢' if unlocked else '🔴'} {interaction.user.mention} hat "
+            f"**{label}** {'geöffnet' if unlocked else 'gesperrt'}",
+            color=0x2ECC71 if unlocked else 0xE74C3C,
+        )
+    )
+    await update_panel_message()
+    await update_info_panel()
 
-    @discord.ui.button(label="End", style=discord.ButtonStyle.secondary, custom_id="panel_toggle_end")
-    async def toggle_end(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await self.toggle(interaction, "end")
 
+class DimensionToggle(discord.ui.Button):
+    """Schalter neben dem Status einer Dimension; die Beschriftung zeigt, was ein Klick tut."""
+
+    def __init__(self, key, unlocked):
+        super().__init__(
+            label="Sperren" if unlocked else "Öffnen",
+            style=discord.ButtonStyle.danger if unlocked else discord.ButtonStyle.success,
+            custom_id=f"panel_toggle_{key}",
+        )
+        self.key = key
+
+    async def callback(self, interaction: discord.Interaction):
+        await toggle_dimension(interaction, self.key)
+
+
+class AdminActions(discord.ui.ActionRow):
     @discord.ui.button(label="Kicken", style=discord.ButtonStyle.primary, custom_id="panel_kick")
     async def kick(self, interaction: discord.Interaction, button: discord.ui.Button):
         if await deny_non_admin(interaction):
@@ -757,6 +827,41 @@ class AdminPanelView(discord.ui.View):
         if await deny_non_admin(interaction):
             return
         await interaction.response.send_modal(UnbanModal())
+
+
+class AdminPanelView(discord.ui.LayoutView):
+    def __init__(self, guild=None):
+        super().__init__(timeout=None)
+        state = load_dimensions()
+
+        try:
+            players = get_online_players()
+            online = f"### 👥 Online · {len(players)}\n" + (
+                ", ".join(players) or "-# niemand"
+            )
+        except Exception:
+            traceback.print_exc()
+            online = "### 👥 Online · —\n-# Server nicht erreichbar"
+
+        items = [
+            panel_header("## 🛠️ Admin-Panel\n-# Dimensionen schalten, Spieler kicken oder bannen", guild),
+            discord.ui.Separator(),
+        ]
+        for key, meta in DIMENSIONS.items():
+            status = "🟢 offen" if state[key] else "🔴 gesperrt"
+            items.append(
+                discord.ui.Section(
+                    f"**{meta['label']}**\n{status}",
+                    accessory=DimensionToggle(key, state[key]),
+                )
+            )
+        items += [
+            discord.ui.Separator(),
+            discord.ui.TextDisplay(online),
+            AdminActions(),
+            discord.ui.TextDisplay(footer_line(f"`{server_address()}`")),
+        ]
+        self.add_item(discord.ui.Container(*items, accent_colour=ACCENT))
 
 
 # ------------------------------------------------------------------ Eintragen
@@ -849,27 +954,6 @@ class WhitelistModal(discord.ui.Modal, title="🔮 Whitelist"):
         await update_info_panel()
 
 
-def build_whitelist_panel_embed(guild=None):
-    whitelisted = load_whitelisted()
-
-    embed = discord.Embed(
-        title="ᴡʜɪᴛᴇʟɪѕᴛ",
-        description="Klicke unten und gib deinen **exakten** Minecraft-Namen ein.",
-        color=0x9D4EDD,
-    )
-    if guild and guild.icon:
-        embed.set_thumbnail(url=guild.icon.url)
-
-    embed.add_field(
-        name="ѕᴘɪᴇʟᴇʀ",
-        value="\n".join(f"<@{uid}> — **{name}**" for uid, name in whitelisted.items())
-        or "_noch niemand_",
-        inline=False,
-    )
-    embed.set_footer(text=f"{RCON_HOST}:25565  •  {len(whitelisted)} gewhitelistet")
-    return embed
-
-
 async def update_whitelist_panel():
     """Hält genau eine Panel-Nachricht im Whitelist-Kanal aktuell."""
     channel = bot.get_channel(WHITELIST_CHANNEL_ID)
@@ -877,21 +961,14 @@ async def update_whitelist_panel():
         print(f"Whitelist-Kanal {WHITELIST_CHANNEL_ID} nicht gefunden")
         return
 
-    message = await fetch_tracked_message(channel, INSTRUCTIONS_STATE_FILE)
-    embed = build_whitelist_panel_embed(channel.guild)
-    try:
-        if message:
-            await message.edit(embed=embed, view=WhitelistPanelView())
-            return
-
-        message = await channel.send(embed=embed, view=WhitelistPanelView())
-        save_tracked_message(INSTRUCTIONS_STATE_FILE, channel, message)
+    message = await publish_panel(
+        channel, INSTRUCTIONS_STATE_FILE, WhitelistPanelView(channel.guild)
+    )
+    if message:
         try:
             await message.pin()
         except discord.HTTPException:
             traceback.print_exc()  # Anpinnen ist nur Komfort, kein Grund neu zu posten
-    except Exception:
-        traceback.print_exc()
 
 
 @bot.event
@@ -955,7 +1032,11 @@ async def whitelist_remove(interaction: discord.Interaction, minecraft_name: str
 @bot.tree.command(name="whitelist-liste", description="Zeigt alle gewhitelisteten Spieler (nur Admin)")
 @app_commands.checks.has_permissions(administrator=True)
 async def whitelist_list(interaction: discord.Interaction):
-    await interaction.response.send_message(embed=build_whitelist_panel_embed(interaction.guild), ephemeral=True)
+    await interaction.response.send_message(
+        view=WhitelistListView(interaction.guild),
+        ephemeral=True,
+        allowed_mentions=NO_PINGS,
+    )
     schedule_delete(interaction, 60)
 
 
