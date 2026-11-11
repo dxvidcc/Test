@@ -16,8 +16,10 @@ NUMBER_FONT_PATH = os.path.join(ASSETS, "Silkscreen-Bold.ttf")
 
 INK = (24, 22, 18)
 SCALE = 4  # intern hochskaliert für scharfe Kanten, Maße unten in Kartenpixeln
-CARD_W, CARD_H = 340, 570
-ROWS = 10
+# Discord zeigt Bilder höchstens etwa 680 px breit. Das Banner ist genau so breit,
+# die drei Karten zusammen 1020 und werden auf 2/3 verkleinert — Schriften sind darauf ausgelegt.
+CARD_W, CARD_H = 340, 456
+ROWS = 5
 
 # Kleine Pixel-Symbole, 10 × 9: "H" und "S" werden in der Kartenfarbe gemalt
 ICONS = {
@@ -183,11 +185,32 @@ def _shade(color, factor):
 
 
 def _format(value, unit):
+    """Kurz genug für die schmalen Karten: 9.999, 543K, 1,2M bzw. 45 MIN, 181 H."""
     if unit == " h":
         if value < 1:
-            return f"{int(value * 60)} min"
-        return f"{int(value):,}".replace(",", ".") + " h"
-    return f"{int(value):,}".replace(",", ".") + unit
+            return f"{int(value * 60)} MIN"
+        return f"{int(value):,}".replace(",", ".") + " H"
+    value = int(value)
+    if value < 10_000:
+        return f"{value:,}".replace(",", ".")
+    if value < 1_000_000:
+        return f"{value // 1000}K"
+    return f"{value / 1_000_000:.1f}M".replace(".", ",")
+
+
+def _paste_icon(img, rows, palette, box, scale_to):
+    """Kleines Pixel-Symbol, mittig in den schwarzen Kasten `box` (Kartenpixel)."""
+    R = lambda *v: [int(x * SCALE) for x in v]
+    w, h = len(rows[0]), len(rows)
+    icon = Image.new("RGB", (w, h), INK)
+    for y, line in enumerate(rows):
+        for x, c in enumerate(line):
+            if c != ".":
+                icon.putpixel((x, y), palette.get(c, palette.get("*")))
+    size = R(scale_to * w / max(w, h), scale_to * h / max(w, h))
+    x0, y0, x1, y1 = box
+    position = R(x0 + (x1 - x0 - size[0] / SCALE) / 2, y0 + (y1 - y0 - size[1] / SCALE) / 2)
+    img.paste(icon.resize(size, Image.NEAREST), tuple(position))
 
 
 def _card(board, rows):
@@ -197,49 +220,45 @@ def _card(board, rows):
 
     img = Image.new("RGBA", R(CARD_W, CARD_H), (0, 0, 0, 0))
     d = ImageDraw.Draw(img)
-    d.rectangle(R(23, 22, 319, 552), fill=INK)  # Schatten
-    d.rectangle(R(19, 18, 315, 548), fill=color, outline=INK, width=3 * SCALE)
+    bottom = CARD_H - 22
+    d.rectangle(R(23, 22, 319, bottom + 4), fill=INK)  # Schatten
+    d.rectangle(R(19, 18, 315, bottom), fill=color, outline=INK, width=3 * SCALE)
 
-    d.rectangle(R(37, 42, 80, 83), fill=INK)
-    icon = Image.new("RGB", (10, 9), INK)
-    for y, line in enumerate(ICONS[board["icon"]]):
-        for x, c in enumerate(line):
-            if c != ".":
-                icon.putpixel((x, y), color)
-    img.paste(icon.resize(R(26, 23), Image.NEAREST), tuple(R(45, 51)))
-    d.text(R(92, 59), board["title"], font=_font(23, 700), fill=INK, anchor="ls")
-    d.text(R(93, 81), board["subtitle"], font=_font(11.5, 600), fill=_shade(color, 0.5), anchor="ls")
+    d.rectangle(R(37, 38, 84, 85), fill=INK)
+    _paste_icon(img, ICONS[board["icon"]], {"*": color}, (37, 38, 84, 85), 30)
+    d.text(R(96, 62), board["title"], font=_font(27, 700), fill=INK, anchor="ls")
+    d.text(R(97, 84), board["subtitle"], font=_font(14, 600), fill=_shade(color, 0.48), anchor="ls")
 
-    rank_font, row_font, value_font = _number_font(11), _font(15.5, 600), _number_font(11.5)
-    y = 110
+    rank_font, row_font, value_font = _number_font(14), _font(21, 600), _number_font(15)
+    y = 104
     for place in range(1, ROWS + 1):
-        mid = y + 10
+        mid = y + 31
         entry = rows[place - 1] if place <= len(rows) else None
 
         if place <= 3:
             if entry:
-                d.rectangle(R(37, mid - 15, 68, mid + 15), fill=INK)
+                d.rectangle(R(37, mid - 15, 67, mid + 15), fill=INK)
             else:
-                d.rectangle(R(37, mid - 15, 68, mid + 15), outline=faint, width=SCALE)
+                d.rectangle(R(37, mid - 15, 67, mid + 15), outline=faint, width=SCALE)
         rank_color = color if place <= 3 and entry else (INK if entry else faint)
-        d.text(R(52.5, mid), str(place), font=rank_font, fill=rank_color, anchor="mm")
+        d.text(R(52, mid), str(place), font=rank_font, fill=rank_color, anchor="mm")
 
         if entry:
             uuid, name, value = entry
-            d.rectangle(R(75, mid - 16, 110, mid + 16), fill=INK)
-            img.paste(player_head(uuid).resize(R(32, 32), Image.NEAREST), tuple(R(76.5, mid - 15)))
+            d.rectangle(R(74, mid - 21, 116, mid + 21), fill=INK)
+            img.paste(player_head(uuid).resize(R(40, 40), Image.NEAREST), tuple(R(75, mid - 20)))
             text = _format(value, board["unit"])
-            d.text(R(296, mid), text, font=value_font, fill=INK, anchor="rm")
-            room = R(296)[0] - d.textlength(text, font=value_font) - R(116 + 8)[0]
-            d.text(R(116, mid), _fit(d, name, row_font, room), font=row_font, fill=INK, anchor="lm")
+            d.text(R(297, mid), text, font=value_font, fill=INK, anchor="rm")
+            room = R(297)[0] - d.textlength(text, font=value_font) - R(124 + 8)[0]
+            d.text(R(124, mid), _fit(d, name, row_font, room), font=row_font, fill=INK, anchor="lm")
         else:
-            d.rectangle(R(75, mid - 16, 110, mid + 16), outline=faint, width=SCALE)
-            d.text(R(116, mid), "—", font=row_font, fill=faint, anchor="lm")
-            d.text(R(296, mid), "—", font=row_font, fill=faint, anchor="rm")
+            d.rectangle(R(74, mid - 21, 116, mid + 21), outline=faint, width=SCALE)
+            d.text(R(124, mid), "—", font=row_font, fill=faint, anchor="lm")
+            d.text(R(297, mid), "—", font=row_font, fill=faint, anchor="rm")
 
         if place < ROWS:
-            d.line(R(37, mid + 22, 298, mid + 22), fill=_shade(color, 0.88), width=SCALE)
-        y += 43.5
+            d.line(R(37, y + 62, 298, y + 62), fill=_shade(color, 0.88), width=SCALE)
+        y += 62
 
     # Doppelte Auflösung reicht für Discord und hält die Datei klein
     return img.resize((CARD_W * 2, CARD_H * 2), Image.LANCZOS)
@@ -253,122 +272,120 @@ GRASS_COLORS = {"G": (106, 170, 64), "g": (80, 140, 50), "B": (134, 96, 67), "b"
 BANNER_COLOR = (178, 150, 232)
 BANNER_OFFLINE = (150, 140, 165)
 GREEN, RED = (70, 170, 90), (200, 70, 70)
-BANNER_H = 300
+BANNER_W, BANNER_H = 680, 312
 
 
 def _banner(info):
-    """Server-Banner über den Ranglisten, so breit wie die drei Karten zusammen.
+    """Server-Banner, so breit, wie Discord ein Bild höchstens anzeigt.
 
     `info` kommt aus dem Bot: online, address, players, max, tps, whitelist,
     deaths (Liste (Name, Anzahl) absteigend, None wenn offline) und dims (Liste (Name, offen)).
     """
     R = lambda *v: [int(x * SCALE) for x in v]
-    W = CARD_W * 3
     color = BANNER_COLOR if info["online"] else BANNER_OFFLINE
     muted, line = _shade(color, 0.42), _shade(color, 0.82)
 
-    img = Image.new("RGBA", R(W, BANNER_H), (0, 0, 0, 0))
+    img = Image.new("RGBA", R(BANNER_W, BANNER_H), (0, 0, 0, 0))
     d = ImageDraw.Draw(img)
-    # Ränder wie bei den Karten: links bündig mit der ersten, rechts mit der dritten
-    x0, y0, x1, y1 = 19, 18, CARD_W * 2 + 315, BANNER_H - 22
+    # Ränder so, dass das Banner bündig über den (verkleinerten) Karten steht
+    x0, y0, x1, y1 = 13, 12, 663, BANNER_H - 16
     d.rectangle(R(x0 + 4, y0 + 4, x1 + 4, y1 + 4), fill=INK)
     d.rectangle(R(x0, y0, x1, y1), fill=color, outline=INK, width=3 * SCALE)
 
-    d.rectangle(R(37, 42, 80, 83), fill=INK)
-    block = Image.new("RGB", (9, 9))
-    for y, row in enumerate(GRASS_BLOCK):
-        for x, c in enumerate(row):
-            block.putpixel((x, y), GRASS_COLORS[c])
-    img.paste(block.resize(R(27, 27), Image.NEAREST), tuple(R(45, 49)))
-    d.text(R(92, 59), "Server", font=_font(23, 700), fill=INK, anchor="ls")
-    d.text(R(93, 81), info["address"], font=_number_font(10), fill=muted, anchor="ls")
+    left, right = x0 + 18, x1 - 18
+    d.rectangle(R(left, 32, left + 47, 79), fill=INK)
+    _paste_icon(img, GRASS_BLOCK, GRASS_COLORS, (left, 32, left + 47, 79), 31)
+    d.text(R(left + 60, 58), "Server", font=_font(28, 700), fill=INK, anchor="ls")
+    d.text(R(left + 61, 78), info["address"], font=_number_font(12), fill=muted, anchor="ls")
 
     status = "ONLINE" if info["online"] else "OFFLINE"
-    status_font = _number_font(11)
-    right = x1 - 18
-    width = d.textlength(status, font=status_font) / SCALE + 34
-    d.rectangle(R(right - width, 44, right, 74), fill=INK)
-    d.rectangle(R(right - width + 10, 54, right - width + 20, 64), fill=GREEN if info["online"] else RED)
-    d.text(R(right - width + 27, 59), status, font=status_font, fill=color, anchor="lm")
-    d.line(R(37, 100, right, 100), fill=line, width=SCALE)
+    status_font = _number_font(14)
+    width = d.textlength(status, font=status_font) / SCALE + 40
+    d.rectangle(R(right - width, 38, right, 72), fill=INK)
+    d.rectangle(R(right - width + 11, 49, right - width + 23, 61), fill=GREEN if info["online"] else RED)
+    d.text(R(right - width + 31, 55), status, font=status_font, fill=color, anchor="lm")
+    d.line(R(left, 96, right, 96), fill=line, width=SCALE)
 
-    label_font, name_font = _number_font(10), _font(14, 600)
-    column = (right - 37) / 3
+    label_font, name_font, value_font = _number_font(12), _font(18, 600), _number_font(14)
+    column = (right - left) / 3
+    muted_font = _font(15, 600)
 
     def label(x, text):
-        d.text(R(x, 126), text, font=label_font, fill=muted, anchor="ls")
+        d.text(R(x, 124), text, font=label_font, fill=muted, anchor="ls")
 
-    def head(x, y, key, size=26):
+    def head(x, y, key, size=32):
         d.rectangle(R(x, y, x + size, y + size), fill=INK)
         img.paste(player_head(key).resize(R(size - 2, size - 2), Image.NEAREST), tuple(R(x + 1, y + 1)))
 
     # Spieler
-    x = 37
+    x = left
     label(x, "SPIELER")
     count = f"{len(info['players'])}/{info['max']}" if info["online"] else "-"
-    d.text(R(x, 166), count, font=_number_font(24), fill=INK, anchor="ls")
-    shown = info["players"][:8]
+    d.text(R(x, 166), count, font=_number_font(30), fill=INK, anchor="ls")
+    fits = int((column - 20) // 36)
+    shown = info["players"][:fits] if len(info["players"]) <= fits else info["players"][:fits - 1]
     for index, name in enumerate(shown):
-        head(x + index * 30, 180, name)
+        head(x + index * 36, 182, name)
     if len(info["players"]) > len(shown):
-        d.text(R(x + len(shown) * 30 + 4, 193), f"+{len(info['players']) - len(shown)}",
-               font=_number_font(10), fill=INK, anchor="lm")
+        d.text(R(x + len(shown) * 36 + 2, 198), f"+{len(info['players']) - len(shown)}",
+               font=value_font, fill=INK, anchor="lm")
     if not info["players"]:
-        text = "niemand online" if info["online"] else "Server nicht erreichbar"
-        d.text(R(x, 197), text, font=_font(12, 600), fill=muted, anchor="ls")
+        text = "niemand online" if info["online"] else "nicht erreichbar"
+        d.text(R(x, 204), text, font=muted_font, fill=muted, anchor="ls")
     extra = [f"WHITELIST {info['whitelist']}"]
     if info["tps"] is not None:
         extra.insert(0, f"TPS {info['tps']:.1f}")
-    d.text(R(x, 240), "   ".join(extra), font=_number_font(9.5), fill=INK, anchor="ls")
+    d.text(R(x, 262), "  ".join(extra), font=label_font, fill=INK, anchor="ls")
 
     # Tode, die Top 3
-    x = 37 + column
-    d.line(R(x - 12, 112, x - 12, 250), fill=line, width=SCALE)
+    x = left + column + 12
+    d.line(R(x - 14, 110, x - 14, 268), fill=line, width=SCALE)
     deaths = info["deaths"]
-    label(x, f"TODE · {sum(n for _, n in deaths)}" if deaths is not None else "TODE")
+    label(x, f"TODE {sum(n for _, n in deaths)}" if deaths is not None else "TODE")
     if not deaths:
-        text = "noch niemand gestorben" if deaths is not None else "Server nicht erreichbar"
-        d.text(R(x, 160), text, font=_font(12, 600), fill=muted, anchor="ls")
+        text = "noch niemand" if deaths is not None else "nicht erreichbar"
+        d.text(R(x, 160), text, font=muted_font, fill=muted, anchor="ls")
+    end = left + 2 * column - 14
     for index, (name, n) in enumerate((deaths or [])[:3]):
-        y = 140 + index * 34
+        y = 138 + index * 42
         head(x, y, name)
         value = str(n)
-        d.text(R(x + column - 26, y + 13), value, font=_number_font(11.5), fill=INK, anchor="rm")
-        room = R(x + column - 26)[0] - d.textlength(value, font=_number_font(11.5)) - R(x + 34 + 8)[0]
-        d.text(R(x + 34, y + 13), _fit(d, name, name_font, room), font=name_font, fill=INK, anchor="lm")
+        d.text(R(end, y + 16), value, font=value_font, fill=INK, anchor="rm")
+        room = R(end)[0] - d.textlength(value, font=value_font) - R(x + 42 + 8)[0]
+        d.text(R(x + 42, y + 16), _fit(d, name, name_font, room), font=name_font, fill=INK, anchor="lm")
 
     # Dimensionen
-    x = 37 + 2 * column
-    d.line(R(x - 12, 112, x - 12, 250), fill=line, width=SCALE)
+    x = left + 2 * column + 12
+    d.line(R(x - 14, 110, x - 14, 268), fill=line, width=SCALE)
     label(x, "DIMENSIONEN")
     for index, (name, open_) in enumerate(info["dims"]):
-        y = 140 + index * 40
-        d.rectangle(R(x, y, x + 26, y + 26), fill=INK)
-        d.rectangle(R(x + 6, y + 6, x + 20, y + 20), fill=GREEN if open_ else RED)
-        d.text(R(x + 34, y + 13), name, font=name_font, fill=INK, anchor="lm")
-        d.text(R(x + column - 26, y + 13), "OFFEN" if open_ else "GESPERRT",
-               font=label_font, fill=INK, anchor="rm")
+        y = 138 + index * 46
+        d.rectangle(R(x, y, x + 32, y + 32), fill=INK)
+        d.rectangle(R(x + 8, y + 8, x + 24, y + 24), fill=GREEN if open_ else RED)
+        d.text(R(x + 42, y + 10), name, font=name_font, fill=INK, anchor="lm")
+        d.text(R(x + 42, y + 27), "OFFEN" if open_ else "GESPERRT", font=label_font, fill=INK, anchor="lm")
 
-    return img.resize((W * 2, BANNER_H * 2), Image.LANCZOS)
+    return img.resize((BANNER_W * 2, BANNER_H * 2), Image.LANCZOS)
 
 
-def render_info(info, server_dir=None):
-    """Server-Banner und darunter die Ranglisten als ein PNG mit durchsichtigem Hintergrund.
-
-    Ohne Server-Ordner gibt es keine Statistiken, dann nur das Banner.
-    """
-    banner = _banner(info)
-    cards = []
-    if server_dir:
-        cards = [_card(board, rows) for board, rows in zip(BOARDS, collect_rankings(server_dir))]
-
-    height = banner.height + (CARD_H * 2 if cards else 0)
-    image = Image.new("RGBA", (banner.width, height), (0, 0, 0, 0))
-    image.alpha_composite(banner, (0, 0))
-    for index, card in enumerate(cards):
-        image.alpha_composite(card, (CARD_W * 2 * index, banner.height))
-
+def _png(image):
     buffer = io.BytesIO()
     image.save(buffer, format="PNG", optimize=True)
     buffer.seek(0)
     return buffer
+
+
+def render_info(info, server_dir=None):
+    """Zwei PNGs mit durchsichtigem Hintergrund: das Server-Banner und die Ranglisten.
+
+    Ohne Server-Ordner gibt es keine Statistiken, dann ist das zweite None.
+    """
+    banner = _png(_banner(info))
+    if not server_dir:
+        return banner, None
+
+    cards = [_card(board, rows) for board, rows in zip(BOARDS, collect_rankings(server_dir))]
+    strip = Image.new("RGBA", (CARD_W * 2 * len(cards), CARD_H * 2), (0, 0, 0, 0))
+    for index, card in enumerate(cards):
+        strip.alpha_composite(card, (CARD_W * 2 * index, 0))
+    return banner, _png(strip)

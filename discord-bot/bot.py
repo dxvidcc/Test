@@ -529,6 +529,7 @@ def collect_server_info():
 
 
 INFO_IMAGE = "server.png"
+RANKING_IMAGE = "ranglisten.png"
 
 # Signatur der zuletzt geposteten Daten — ändert sich nichts, wird nichts neu gezeichnet
 _info_posted = {"signature": None}
@@ -557,13 +558,16 @@ def info_snapshot():
 
 
 class InfoPanelView(discord.ui.LayoutView):
-    """Das gezeichnete Info-Bild und darunter die Server-Adresse zum Kopieren."""
+    """Banner und Ranglisten als zwei Bilder untereinander, darunter die Adresse zum Kopieren.
 
-    def __init__(self):
+    Jedes Bild steht in einer eigenen Galerie, damit Discord beide in voller Breite zeigt.
+    """
+
+    def __init__(self, rankings=True):
         super().__init__(timeout=None)
-        self.add_item(
-            discord.ui.MediaGallery(discord.MediaGalleryItem(f"attachment://{INFO_IMAGE}"))
-        )
+        names = [INFO_IMAGE] + ([RANKING_IMAGE] if rankings else [])
+        for name in names:
+            self.add_item(discord.ui.MediaGallery(discord.MediaGalleryItem(f"attachment://{name}")))
         self.add_item(discord.ui.TextDisplay(f"-# Server-IP: `{server_address()}`"))
 
 
@@ -590,17 +594,22 @@ async def update_info_panel():
 
     try:
         # Dateien lesen, Köpfe laden und zeichnen dauert — nicht im Event-Loop
-        image = await asyncio.to_thread(leaderboard.render_info, snapshot, MC_SERVER_DIR)
+        banner, rankings = await asyncio.to_thread(
+            leaderboard.render_info, snapshot, MC_SERVER_DIR
+        )
     except Exception:
         traceback.print_exc()
         return
 
-    file = discord.File(image, filename=INFO_IMAGE)
+    files = [discord.File(banner, filename=INFO_IMAGE)]
+    if rankings:
+        files.append(discord.File(rankings, filename=RANKING_IMAGE))
+    view = InfoPanelView(rankings=rankings is not None)
     try:
         if message:
-            await message.edit(view=InfoPanelView(), attachments=[file])
+            await message.edit(view=view, attachments=files)
         else:
-            message = await channel.send(view=InfoPanelView(), file=file)
+            message = await channel.send(view=view, files=files)
             save_tracked_message(INFO_STATE_FILE, channel, message)
     except Exception:
         traceback.print_exc()
