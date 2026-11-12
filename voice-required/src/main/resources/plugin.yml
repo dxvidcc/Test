@@ -1,0 +1,10 @@
+name: VoiceRequired
+version: 1.0.0
+main: de.mcserver.voicerequired.VoiceRequired
+api-version: '1.20'
+description: Kickt Spieler ohne die Simple-Voice-Chat-Mod.
+softdepend: [voicechat]
+permissions:
+  voicerequired.bypass:
+    description: Darf auch ohne Simple Voice Chat spielen.
+    default: false
