@@ -1,0 +1,24 @@
+{
+  "source": {
+    "type": "camera",
+    "camera_index": 0,
+    "test_image": "test_screen.png"
+  },
+  "dewarp": {
+    "output_width": 1600,
+    "output_height": 900,
+    "corners": null
+  },
+  "display": {
+    "monitor_index": 0,
+    "fullscreen": false,
+    "window_width": 1600,
+    "window_height": 900,
+    "show_panel": true
+  },
+  "ai": {
+    "model": "claude-sonnet-5-5",
+    "max_tokens": 1500,
+    "language": "de"
+  }
+}
